@@ -60,7 +60,7 @@ python cli.py --list-algorithms
 python gui.py
 ```
 
-**Default Settings**: Opens with heavy_load scenario and Euclidean Distance algorithm for immediate meaningful results.
+**Default Settings**: Opens with mixed_load scenario (12 nodes) and Euclidean Distance algorithm for immediate meaningful results.
 
 #### GUI Features:
 - **Load/save scenarios** from JSON files
@@ -109,7 +109,7 @@ python gui.py
 The simulator includes four realistic scenarios:
 
 1. **light_load**: 6 nodes with low utilization (10-30%), minimal pressure
-2. **mixed_load**: 8 nodes with varied utilization (25-87%), mixed pressure patterns
+2. **mixed_load**: 12 nodes with varied utilization (25-95%), mixed pressure patterns
 3. **heavy_load**: 10 nodes with high utilization (75-95%), significant pressure
 4. **realistic_progression**: 8 nodes showing gradual load increase with authentic pressure curves
 

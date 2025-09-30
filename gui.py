@@ -204,11 +204,11 @@ class NodeClassifierGUI:
         """Load sample scenarios."""
         self.current_scenarios = ScenarioLoader.create_sample_scenarios()
         self.update_scenario_combo()
-        # Set default to heavy_load scenario
+        # Set default to mixed_load scenario
         scenario_names = list(self.current_scenarios.keys())
-        if 'heavy_load' in scenario_names:
-            heavy_load_index = scenario_names.index('heavy_load')
-            self.scenario_combo.current(heavy_load_index)
+        if 'mixed_load' in scenario_names:
+            mixed_load_index = scenario_names.index('mixed_load')
+            self.scenario_combo.current(mixed_load_index)
         else:
             self.scenario_combo.current(0)
         self.on_scenario_change()

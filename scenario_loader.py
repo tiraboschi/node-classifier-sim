@@ -119,6 +119,10 @@ class ScenarioLoader:
                 create_realistic_node("node-6", 0.55, 0.45),
                 create_realistic_node("node-7", 0.65, 0.75),
                 create_realistic_node("node-8", 0.40, 0.85),  # High memory
+                create_realistic_node("node-9", 0.30, 0.50),  # Low-moderate load
+                create_realistic_node("node-10", 0.90, 0.70), # Very high CPU
+                create_realistic_node("node-11", 0.50, 0.35), # Moderate balanced
+                create_realistic_node("node-12", 0.70, 0.90), # High memory pressure
             ],
             "heavy_load": [
                 create_realistic_node("node-1", 0.85, 0.90),
