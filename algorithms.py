@@ -161,6 +161,147 @@ class WeightedRMSPositiveDeviationAlgorithm(ClassificationAlgorithm):
                 node.memory_usage * self.params['memory_usage_weight'] +
                 node.memory_pressure * self.params['memory_pressure_weight'])
 
+class ParetoFrontAlgorithm(ClassificationAlgorithm):
+    """Pareto Front algorithm inspired by NSGA-II for multi-objective optimization.
+
+    Identifies non-dominated solutions across all four metrics and ranks nodes
+    based on Pareto front level and crowding distance. Nodes in the first front
+    represent optimal trade-offs between resource metrics.
+    """
+
+    def __init__(self):
+        super().__init__("Pareto Front (NSGA-II)")
+
+    def dominates(self, node1: Node, node2: Node) -> bool:
+        """Check if node1 dominates node2 (node1 is worse in all objectives)."""
+        # For load classification, higher values are worse, so node1 dominates node2 if
+        # node1 has all metrics <= node2's metrics and at least one is strictly less
+        objectives1 = [node1.cpu_usage, node1.cpu_pressure, node1.memory_usage, node1.memory_pressure]
+        objectives2 = [node2.cpu_usage, node2.cpu_pressure, node2.memory_usage, node2.memory_pressure]
+
+        # Check if node1 is at least as good as node2 in all objectives
+        at_least_as_good = all(obj1 <= obj2 for obj1, obj2 in zip(objectives1, objectives2))
+        # Check if node1 is strictly better in at least one objective
+        strictly_better = any(obj1 < obj2 for obj1, obj2 in zip(objectives1, objectives2))
+
+        return at_least_as_good and strictly_better
+
+    def fast_non_dominated_sort(self, nodes: List[Node]) -> List[List[int]]:
+        """Perform fast non-dominated sorting to identify Pareto fronts."""
+        n = len(nodes)
+        fronts = [[]]
+        dominated_count = [0] * n  # Number of solutions that dominate solution i
+        dominated_solutions = [[] for _ in range(n)]  # Solutions dominated by solution i
+
+        # For each solution, find which solutions it dominates and count dominating solutions
+        for i in range(n):
+            for j in range(n):
+                if i != j:
+                    if self.dominates(nodes[i], nodes[j]):
+                        dominated_solutions[i].append(j)
+                    elif self.dominates(nodes[j], nodes[i]):
+                        dominated_count[i] += 1
+
+            # If no solution dominates this one, it belongs to the first front
+            if dominated_count[i] == 0:
+                fronts[0].append(i)
+
+        # Build subsequent fronts
+        front_index = 0
+        while front_index < len(fronts) and fronts[front_index]:
+            next_front = []
+            for i in fronts[front_index]:
+                for j in dominated_solutions[i]:
+                    dominated_count[j] -= 1
+                    if dominated_count[j] == 0:
+                        next_front.append(j)
+            if next_front:
+                fronts.append(next_front)
+            front_index += 1
+
+        return fronts
+
+    def calculate_crowding_distance(self, nodes: List[Node], front: List[int]) -> List[float]:
+        """Calculate crowding distance for solutions in a front."""
+        if len(front) <= 2:
+            return [float('inf')] * len(front)
+
+        distances = [0.0] * len(front)
+        objectives = [
+            [nodes[i].cpu_usage for i in front],
+            [nodes[i].cpu_pressure for i in front],
+            [nodes[i].memory_usage for i in front],
+            [nodes[i].memory_pressure for i in front]
+        ]
+
+        # For each objective
+        for obj_idx, obj_values in enumerate(objectives):
+            # Sort indices by objective value
+            sorted_indices = sorted(range(len(front)), key=lambda i: obj_values[i])
+
+            # Set boundary solutions to infinite distance
+            distances[sorted_indices[0]] = float('inf')
+            distances[sorted_indices[-1]] = float('inf')
+
+            # Calculate crowding distance for intermediate solutions
+            obj_range = max(obj_values) - min(obj_values)
+            if obj_range > 0:
+                for i in range(1, len(sorted_indices) - 1):
+                    idx = sorted_indices[i]
+                    prev_idx = sorted_indices[i - 1]
+                    next_idx = sorted_indices[i + 1]
+                    distances[idx] += (obj_values[next_idx] - obj_values[prev_idx]) / obj_range
+
+        return distances
+
+    def classify_nodes(self, nodes: List[Node]) -> List[Tuple[Node, float]]:
+        """Classify nodes using Pareto front ranking with crowding distance."""
+        if not nodes:
+            return []
+
+        # Perform non-dominated sorting
+        fronts = self.fast_non_dominated_sort(nodes)
+
+        # Assign normalized scores between 0 and 1 based on front level and crowding distance
+        scored_nodes = []
+        total_fronts = len(fronts)
+
+        for front_level, front in enumerate(fronts):
+            # Calculate crowding distances for this front
+            distances = self.calculate_crowding_distance(nodes, front)
+
+            # Normalize front level to [0, 1] range
+            # Best front (0) gets score close to 0, worst front gets score close to 1
+            front_score = front_level / max(1, total_fronts - 1) if total_fronts > 1 else 0.0
+
+            # Calculate crowding distance contribution (smaller is better for diversity)
+            for i, node_idx in enumerate(front):
+                if distances[i] == float('inf'):
+                    # Boundary solutions get slightly better scores for diversity
+                    crowding_contribution = 0.0
+                else:
+                    # Normalize crowding distance contribution to small range [0, 0.1]
+                    max_dist = max(d for d in distances if d != float('inf')) if any(d != float('inf') for d in distances) else 1.0
+                    if max_dist > 0:
+                        crowding_contribution = 0.1 * (1.0 - distances[i] / max_dist)
+                    else:
+                        crowding_contribution = 0.05
+
+                # Combine front score (primary) with crowding distance (secondary)
+                final_score = front_score + crowding_contribution
+
+                # Ensure score is in [0, 1] range
+                final_score = max(0.0, min(1.0, final_score))
+                scored_nodes.append((nodes[node_idx], final_score))
+
+        # Sort by score (ascending - better solutions have lower scores)
+        return sorted(scored_nodes, key=lambda x: x[1])
+
+    def calculate_score(self, node: Node) -> float:
+        """Calculate score for a single node (fallback when no cluster context)."""
+        # When called individually, use average of all metrics as fallback
+        return (node.cpu_usage + node.cpu_pressure + node.memory_usage + node.memory_pressure) / 4.0
+
 def get_default_algorithms() -> List[ClassificationAlgorithm]:
     """Get a list of default classification algorithms."""
     return [
@@ -169,6 +310,7 @@ def get_default_algorithms() -> List[ClassificationAlgorithm]:
         EuclideanDistanceAlgorithm(),
         PressureFocusedAlgorithm(),
         WeightedRMSPositiveDeviationAlgorithm(),
+        ParetoFrontAlgorithm(),
         ResourceTypeAlgorithm("cpu"),
         ResourceTypeAlgorithm("memory")
     ]

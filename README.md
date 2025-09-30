@@ -6,7 +6,7 @@ A comprehensive simulator for Kubernetes node classification algorithms that all
 
 ### Core Functionality
 - **Node representation**: Each K8s node has name, CPU usage percentage (0-1), CPU PSI pressure (0-1), memory usage percentage (0-1), memory PSI pressure (0-1)
-- **Classification algorithms**: Extensible framework with seven pre-implemented algorithms
+- **Classification algorithms**: Extensible framework with eight pre-implemented algorithms
 - **Realistic data generation**: Uses 70% utilization threshold rule for authentic pressure modeling
 - **JSON scenarios**: Load/save scenarios with multiple test cases
 
@@ -85,8 +85,9 @@ python gui.py
 3. **Euclidean Distance**: Geometric distance from origin (0,0,0,0) - great for overall load
 4. **Pressure Focused**: Prioritizes PSI pressure metrics (identifies stressed nodes)
 5. **Weighted RMS Positive Deviation**: Cluster-relative algorithm focusing on nodes above average with weighted RMS calculation (weights: 0.15 for usage, 0.35 for pressure metrics)
-6. **Resource Type (CPU)**: CPU-focused algorithm considering usage and pressure
-7. **Resource Type (Memory)**: Memory-focused algorithm considering usage and pressure
+6. **Pareto Front (NSGA-II)**: Multi-objective optimization using non-dominated sorting and crowding distance to find optimal trade-offs across all metrics
+7. **Resource Type (CPU)**: CPU-focused algorithm considering usage and pressure
+8. **Resource Type (Memory)**: Memory-focused algorithm considering usage and pressure
 
 ## Three-Bucket Classification
 
