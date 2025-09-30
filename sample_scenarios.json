@@ -1,0 +1,234 @@
+{
+  "light_load": [
+    {
+      "name": "node-1",
+      "cpu_usage": 0.16394267984578836,
+      "cpu_pressure": 0.006976573956587571,
+      "memory_usage": 0.15250107552226672,
+      "memory_pressure": 0.005139290049535126
+    },
+    {
+      "name": "node-2",
+      "cpu_usage": 0.27364712141640124,
+      "cpu_pressure": 0.026998889853244994,
+      "memory_usage": 0.31766994874229115,
+      "memory_pressure": 0.013975673064548704
+    },
+    {
+      "name": "node-3",
+      "cpu_usage": 0.09219218196852705,
+      "cpu_pressure": 0.0008262122338689613,
+      "memory_usage": 0.10297972194380703,
+      "memory_pressure": 0.00731568629813374
+    },
+    {
+      "name": "node-4",
+      "cpu_usage": 0.13265359696838636,
+      "cpu_pressure": 0.01228344054337751,
+      "memory_usage": 0.21988376506866486,
+      "memory_pressure": 0.016290693166870873
+    },
+    {
+      "name": "node-5",
+      "cpu_usage": 0.09204406220406966,
+      "cpu_pressure": 0.012631693487841409,
+      "memory_usage": 0.18892656838759087,
+      "memory_pressure": 0.003354834980692582
+    },
+    {
+      "name": "node-6",
+      "cpu_usage": 0.2505819251832808,
+      "cpu_pressure": 0.014345745093189498,
+      "memory_usage": 0.29981393949882273,
+      "memory_pressure": 0.014096565761153224
+    }
+  ],
+  "mixed_load": [
+    {
+      "name": "node-1",
+      "cpu_usage": 0.49572130722067814,
+      "cpu_pressure": 0.026555408373050433,
+      "memory_usage": 0.5836594545112627,
+      "memory_pressure": 0.032790489352457666
+    },
+    {
+      "name": "node-2",
+      "cpu_usage": 0.784749436634746,
+      "cpu_pressure": 0.0908920021002336,
+      "memory_usage": 0.4103726031366891,
+      "memory_pressure": 0.033320717953444594
+    },
+    {
+      "name": "node-3",
+      "cpu_usage": 0.35362280914547006,
+      "cpu_pressure": 0.022324284184349976,
+      "memory_usage": 0.8473115763979371,
+      "memory_pressure": 0.14835238902340167
+    },
+    {
+      "name": "node-4",
+      "cpu_usage": 0.28294046642529946,
+      "cpu_pressure": 0.02703997065598651,
+      "memory_usage": 0.6618519752364246,
+      "memory_pressure": 0.04787668117168497
+    },
+    {
+      "name": "node-5",
+      "cpu_usage": 0.8704571836214923,
+      "cpu_pressure": 0.16501514913452328,
+      "memory_usage": 0.5045824383655663,
+      "memory_pressure": 0.031108529957631786
+    },
+    {
+      "name": "node-6",
+      "cpu_usage": 0.5079791976923628,
+      "cpu_pressure": 0.02757857242665998,
+      "memory_usage": 0.42327908863610303,
+      "memory_pressure": 0.025189008266729058
+    },
+    {
+      "name": "node-7",
+      "cpu_usage": 0.66356844442644,
+      "cpu_pressure": 0.04385341045218846,
+      "memory_usage": 0.7364832178970084,
+      "memory_pressure": 0.030673358512438235
+    },
+    {
+      "name": "node-8",
+      "cpu_usage": 0.37669778220491135,
+      "cpu_pressure": 0.029329552459275668,
+      "memory_usage": 0.8936654587712494,
+      "memory_pressure": 0.19584807888458916
+    }
+  ],
+  "heavy_load": [
+    {
+      "name": "node-1",
+      "cpu_usage": 0.8171138648198096,
+      "cpu_pressure": 0.11038191469504824,
+      "memory_usage": 0.9229126797950349,
+      "memory_pressure": 0.22050178863018788
+    },
+    {
+      "name": "node-2",
+      "cpu_usage": 0.9489523350636595,
+      "cpu_pressure": 0.25009132993915245,
+      "memory_usage": 0.8639999759854092,
+      "memory_pressure": 0.16769226100520676
+    },
+    {
+      "name": "node-3",
+      "cpu_usage": 0.834285192018981,
+      "cpu_pressure": 0.12886615345826313,
+      "memory_usage": 0.9775999911546245,
+      "memory_pressure": 0.26824199603270527
+    },
+    {
+      "name": "node-4",
+      "cpu_usage": 0.8615453048059082,
+      "cpu_pressure": 0.15576496167763476,
+      "memory_usage": 0.7967740875975702,
+      "memory_pressure": 0.10563228188427132
+    },
+    {
+      "name": "node-5",
+      "cpu_usage": 0.7876367626472669,
+      "cpu_pressure": 0.09074553595316456,
+      "memory_usage": 0.7614677880798478,
+      "memory_pressure": 0.05938042610106116
+    },
+    {
+      "name": "node-6",
+      "cpu_usage": 0.9614547589740544,
+      "cpu_pressure": 0.2567523623040155,
+      "memory_usage": 0.8758851852587399,
+      "memory_pressure": 0.17081773541261966
+    },
+    {
+      "name": "node-7",
+      "cpu_usage": 0.8761368134163151,
+      "cpu_pressure": 0.17782853322078596,
+      "memory_usage": 0.8062741608522935,
+      "memory_pressure": 0.11423061852434312
+    },
+    {
+      "name": "node-8",
+      "cpu_usage": 0.8199400505140397,
+      "cpu_pressure": 0.12989080264394198,
+      "memory_usage": 0.9019320759157283,
+      "memory_pressure": 0.2021226017892577
+    },
+    {
+      "name": "node-9",
+      "cpu_usage": 0.8490909412173794,
+      "cpu_pressure": 0.14128392382439262,
+      "memory_usage": 0.8147116375424734,
+      "memory_pressure": 0.11726055837653529
+    },
+    {
+      "name": "node-10",
+      "cpu_usage": 0.8092079364362964,
+      "cpu_pressure": 0.1004784905593356,
+      "memory_usage": 0.7922159966799684,
+      "memory_pressure": 0.08984838241009922
+    }
+  ],
+  "realistic_progression": [
+    {
+      "name": "node-1",
+      "cpu_usage": 0.1496121380240097,
+      "cpu_pressure": 0.01989441721395304,
+      "memory_usage": 0.15291143450991368,
+      "memory_pressure": 0.017919394460383917
+    },
+    {
+      "name": "node-2",
+      "cpu_usage": 0.25114810219428196,
+      "cpu_pressure": 0.021214574534131236,
+      "memory_usage": 0.37207218193601943,
+      "memory_pressure": 0.026784459343697265
+    },
+    {
+      "name": "node-3",
+      "cpu_usage": 0.47668251899525427,
+      "cpu_pressure": 0.02559881980158533,
+      "memory_usage": 0.5640961798579809,
+      "memory_pressure": 0.038182037603440765
+    },
+    {
+      "name": "node-4",
+      "cpu_usage": 0.6453723706329206,
+      "cpu_pressure": 0.05269312475186833,
+      "memory_usage": 0.7253815927521081,
+      "memory_pressure": 0.02064937376712998
+    },
+    {
+      "name": "node-5",
+      "cpu_usage": 0.7200586113050298,
+      "cpu_pressure": 0.02831116809192625,
+      "memory_usage": 0.7178651880530131,
+      "memory_pressure": 0.02527555944974852
+    },
+    {
+      "name": "node-6",
+      "cpu_usage": 0.7798444791448633,
+      "cpu_pressure": 0.08202388337362683,
+      "memory_usage": 0.8338949494866005,
+      "memory_pressure": 0.12695173485759323
+    },
+    {
+      "name": "node-7",
+      "cpu_usage": 0.9262510800075151,
+      "cpu_pressure": 0.23182360958012632,
+      "memory_usage": 0.8839379030119626,
+      "memory_pressure": 0.1845449764558662
+    },
+    {
+      "name": "node-8",
+      "cpu_usage": 0.9000571896127944,
+      "cpu_pressure": 0.19044672446051103,
+      "memory_usage": 0.9024156057004673,
+      "memory_pressure": 0.21099757802575972
+    }
+  ]
+}
