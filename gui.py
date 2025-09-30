@@ -162,16 +162,25 @@ class NodeClassifierGUI:
         results_frame = ttk.LabelFrame(right_panel, text="Classification Results")
         results_frame.pack(fill=tk.X, pady=(10, 0))
 
-        self.results_tree = ttk.Treeview(results_frame, columns=('Score', 'CPU%', 'CPUP', 'MEM%', 'MEMP'), show='tree headings', height=8)
+        self.results_tree = ttk.Treeview(results_frame, columns=('Node', 'Bucket', 'Score', 'CPU%', 'CPUP', 'MEM%', 'MEMP'), show='tree headings', height=8)
         self.results_tree.heading('#0', text='Rank')
+        self.results_tree.heading('Node', text='Node Name')
+        self.results_tree.heading('Bucket', text='Bucket')
         self.results_tree.heading('Score', text='Score')
         self.results_tree.heading('CPU%', text='CPU%')
         self.results_tree.heading('CPUP', text='CPU P')
         self.results_tree.heading('MEM%', text='MEM%')
         self.results_tree.heading('MEMP', text='MEM P')
 
-        for col in ('#0', 'Score', 'CPU%', 'CPUP', 'MEM%', 'MEMP'):
-            self.results_tree.column(col, width=60)
+        # Set column widths - make node name and bucket wider
+        self.results_tree.column('#0', width=50)  # Rank
+        self.results_tree.column('Node', width=80)  # Node Name
+        self.results_tree.column('Bucket', width=70)  # Bucket
+        self.results_tree.column('Score', width=60)  # Score
+        self.results_tree.column('CPU%', width=50)  # CPU%
+        self.results_tree.column('CPUP', width=50)  # CPU P
+        self.results_tree.column('MEM%', width=50)  # MEM%
+        self.results_tree.column('MEMP', width=50)  # MEM P
 
         self.results_tree.pack(fill=tk.X, padx=5, pady=5)
         self.results_tree.bind('<<TreeviewSelect>>', self.on_results_select)
@@ -624,17 +633,22 @@ class NodeClassifierGUI:
             # Show three-bucket classification results with categories
             for rank, result in enumerate(classification_results, 1):
                 category_symbol = "▼" if result.category == UtilizationCategory.UNDER_UTILIZED else "■" if result.category == UtilizationCategory.APPROPRIATELY_UTILIZED else "▲"
-                self.results_tree.insert('', tk.END, text=f"{category_symbol}{rank}",
-                                       values=(f"{result.score:.3f}",
+                category_name = result.category.value.replace('-', ' ').title()
+                self.results_tree.insert('', tk.END, text=f"{rank}",
+                                       values=(result.node.name,
+                                              f"{category_symbol} {category_name}",
+                                              f"{result.score:.3f}",
                                               f"{result.node.cpu_usage:.2f}",
                                               f"{result.node.cpu_pressure:.2f}",
                                               f"{result.node.memory_usage:.2f}",
                                               f"{result.node.memory_pressure:.2f}"))
         else:
-            # Show regular ranking results
+            # Show regular ranking results without bucket information
             for rank, (node, score) in enumerate(classified_nodes, 1):
                 self.results_tree.insert('', tk.END, text=f"{rank}",
-                                       values=(f"{score:.3f}",
+                                       values=(node.name,
+                                              "-",  # No bucket in regular mode
+                                              f"{score:.3f}",
                                               f"{node.cpu_usage:.2f}",
                                               f"{node.cpu_pressure:.2f}",
                                               f"{node.memory_usage:.2f}",
