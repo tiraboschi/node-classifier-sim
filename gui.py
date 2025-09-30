@@ -390,23 +390,24 @@ class NodeClassifierGUI:
         return ThresholdMode.ASYMMETRIC_LOW  # Default
 
     def create_three_bucket_colormap(self):
-        """Create a custom colormap for three-bucket classification."""
-        # Define colors for each section
-        # Under-utilized: blue to light blue
-        # Appropriately-utilized: light blue to green
-        # Over-utilized: orange to red
+        """Create a custom colormap for three-bucket classification with clear separation."""
+        # Define colors for each section with much better distinction
+        # Under-utilized: Cool blue tones
+        # Appropriately-utilized: Green tones
+        # Over-utilized: Warm red/orange tones
 
         colors = [
-            '#0066CC',  # Dark blue (under-utilized start)
-            '#66B3FF',  # Light blue (under-utilized end / appropriately-utilized start)
-            '#00CC66',  # Green (appropriately-utilized end)
-            '#FF9933',  # Orange (over-utilized start)
-            '#FF3333'   # Red (over-utilized end)
+            '#1E3A8A',  # Deep blue (under-utilized start)
+            '#3B82F6',  # Bright blue (under-utilized end)
+            '#10B981',  # Emerald green (appropriately-utilized start)
+            '#059669',  # Dark green (appropriately-utilized end)
+            '#F59E0B',  # Amber (over-utilized start)
+            '#DC2626'   # Red (over-utilized end)
         ]
 
-        # Create positions for the color segments
-        # We'll have 5 segments: under (0-0.33), transition (0.33-0.34), appropriate (0.34-0.66), transition (0.66-0.67), over (0.67-1.0)
-        positions = [0.0, 0.33, 0.34, 0.66, 1.0]
+        # Create positions for clearer bucket separation
+        # More distinct transitions between buckets
+        positions = [0.0, 0.32, 0.35, 0.65, 0.68, 1.0]
 
         # Create the colormap
         cmap = mcolors.LinearSegmentedColormap.from_list(
@@ -446,21 +447,19 @@ class NodeClassifierGUI:
             under_threshold = threshold_info['under_threshold']
             over_threshold = threshold_info['over_threshold']
 
-            # Use actual scores instead of categorical mapping for better visualization
-            color_values = [result.score for result in classification_results]
+            # Use bucket-based colors for clear visual separation
+            # Map each node to its bucket color value
+            color_values = []
+            for result in classification_results:
+                if result.category == UtilizationCategory.UNDER_UTILIZED:
+                    color_values.append(0.16)  # Blue region (0.0 - 0.32)
+                elif result.category == UtilizationCategory.APPROPRIATELY_UTILIZED:
+                    color_values.append(0.50)  # Green region (0.35 - 0.65)
+                else:  # OVER_UTILIZED
+                    color_values.append(0.84)  # Red region (0.68 - 1.0)
 
-            # Find min and max scores for colorbar range
-            min_score = min(color_values)
-            max_score = max(color_values)
-            score_range = max_score - min_score
-
-            # Add some padding to the range
-            if score_range > 0:
-                padding = score_range * 0.1
-                vmin = max(0, min_score - padding)
-                vmax = min(1, max_score + padding)
-            else:
-                vmin, vmax = 0, 1
+            # Use fixed colorbar range for consistent bucket visualization
+            vmin, vmax = 0.0, 1.0
 
             # Use custom colormap
             cmap = self.create_three_bucket_colormap()
@@ -579,25 +578,37 @@ class NodeClassifierGUI:
             appropriate_count = sum(1 for result in classification_results if result.category == UtilizationCategory.APPROPRIATELY_UTILIZED)
             over_count = sum(1 for result in classification_results if result.category == UtilizationCategory.OVER_UTILIZED)
 
-            # Set up colorbar with actual score values and node counts
-            # Create ticks at important points: min, under_threshold, cluster_average, over_threshold, max
-            ticks = [under_threshold, cluster_average, over_threshold]
+            # Set up colorbar with both bucket info and score scale
+            # Position ticks at bucket centers and add score thresholds
+            ticks = [0.16, 0.32, 0.50, 0.68, 0.84]  # Bucket centers + boundaries
             tick_labels = [
-                f'{under_threshold:.3f}\nUnder ({under_count})',
-                f'{cluster_average:.3f}\nAvg ({appropriate_count})',
-                f'{over_threshold:.3f}\nOver ({over_count})'
+                f'Under\n({under_count})',
+                f'{under_threshold:.3f}',
+                f'Appropriate\n({appropriate_count})',
+                f'{over_threshold:.3f}',
+                f'Over\n({over_count})'
             ]
 
-            # Add min and max if they're different from thresholds
-            if vmin < under_threshold - 0.01:
-                ticks.insert(0, vmin)
-                tick_labels.insert(0, f'{vmin:.3f}')
-            if vmax > over_threshold + 0.01:
-                ticks.append(vmax)
-                tick_labels.append(f'{vmax:.3f}')
+            # Add min/max scores if they're significantly different from boundaries
+            if under_threshold > 0.05:
+                ticks.insert(0, 0.0)
+                tick_labels.insert(0, '0.000')
+            if over_threshold < 0.95:
+                ticks.append(1.0)
+                tick_labels.append('1.000')
 
             cbar.set_ticks(ticks)
-            cbar.set_ticklabels(tick_labels, fontsize=9, fontweight='bold')
+            cbar.set_ticklabels(tick_labels, fontsize=8, fontweight='bold')
+
+            # Add visual separators between bucket regions
+            cbar_ax = cbar.ax
+            # Add lines at the boundaries between color regions
+            cbar_ax.axhline(y=0.32, color='white', linestyle='-', linewidth=2, alpha=0.8)  # Blue-Green boundary
+            cbar_ax.axhline(y=0.68, color='white', linestyle='-', linewidth=2, alpha=0.8)  # Green-Red boundary
+
+            # Add threshold indicator lines
+            cbar_ax.axhline(y=under_threshold, color='navy', linestyle='--', linewidth=1.5, alpha=0.9)
+            cbar_ax.axhline(y=over_threshold, color='darkred', linestyle='--', linewidth=1.5, alpha=0.9)
 
             # Add a summary text box showing total counts
             total_nodes = len(classification_results)
