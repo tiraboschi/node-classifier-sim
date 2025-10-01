@@ -22,8 +22,8 @@ class ThresholdMode(Enum):
 @dataclass
 class ThresholdConfig:
     """Configuration for dynamic threshold calculation."""
-    lower_percentage: float  # Percentage below average for under-utilized threshold
-    upper_percentage: float  # Percentage above average for over-utilized threshold
+    lower_percentage: float  # Absolute value to subtract from average for under-utilized threshold
+    upper_percentage: float  # Absolute value to add to average for over-utilized threshold
 
     @classmethod
     def from_mode(cls, mode: ThresholdMode) -> 'ThresholdConfig':
@@ -68,9 +68,9 @@ class NodeClassifier:
         total_score = sum(score for _, score in scored_nodes)
         cluster_average = total_score / len(scored_nodes) if scored_nodes else 0.0
 
-        # Calculate dynamic thresholds
-        under_threshold = cluster_average * (1 - self.threshold_config.lower_percentage)
-        over_threshold = cluster_average * (1 + self.threshold_config.upper_percentage)
+        # Calculate dynamic thresholds as absolute offsets from cluster average
+        under_threshold = cluster_average - self.threshold_config.lower_percentage
+        over_threshold = cluster_average + self.threshold_config.upper_percentage
 
         # Classify each node
         results = []

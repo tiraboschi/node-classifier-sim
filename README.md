@@ -97,17 +97,18 @@ python gui.py
 ## Three-Bucket Classification
 
 ### Threshold Modes
-- **Low (10%:10%)**: Conservative thresholds
-- **Medium (20%:20%)**: Balanced thresholds
-- **High (30%:30%)**: Aggressive thresholds
-- **AsymmetricLow (0%:10%)**: No under-utilized threshold, 10% over-utilized
-- **AsymmetricMedium (0%:20%)**: No under-utilized threshold, 20% over-utilized
-- **AsymmetricHigh (0%:30%)**: No under-utilized threshold, 30% over-utilized
+Thresholds are defined as absolute offsets from the cluster average score:
+- **Low (10%:10%)**: Conservative thresholds - under if score ≤ (avg - 0.10), over if score ≥ (avg + 0.10)
+- **Medium (20%:20%)**: Balanced thresholds - under if score ≤ (avg - 0.20), over if score ≥ (avg + 0.20)
+- **High (30%:30%)**: Aggressive thresholds - under if score ≤ (avg - 0.30), over if score ≥ (avg + 0.30)
+- **AsymmetricLow (0%:10%)**: No under-utilized threshold (score ≤ avg), over if score ≥ (avg + 0.10)
+- **AsymmetricMedium (0%:20%)**: No under-utilized threshold (score ≤ avg), over if score ≥ (avg + 0.20)
+- **AsymmetricHigh (0%:30%)**: No under-utilized threshold (score ≤ avg), over if score ≥ (avg + 0.30)
 
 ### Categories
-- **Under-utilized** (▼): Nodes significantly below cluster average
-- **Appropriately-utilized** (■): Nodes within normal range of cluster average
-- **Over-utilized** (▲): Nodes significantly above cluster average
+- **Under-utilized** (▼): Nodes with scores below (cluster_average - lower_threshold)
+- **Appropriately-utilized** (■): Nodes with scores within the threshold range
+- **Over-utilized** (▲): Nodes with scores above (cluster_average + upper_threshold)
 
 ## KubeVirt VM Rebalancing Simulator
 
