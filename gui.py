@@ -126,7 +126,7 @@ class NodeClassifierGUI:
         euclidean_index = 2  # EuclideanDistanceAlgorithm is third in the list
         self.algo_combo.current(euclidean_index)
         self.algo_combo.pack(fill=tk.X, padx=5, pady=5)
-        self.algo_combo.bind('<<ComboboxSelected>>', self.update_visualization)
+        self.algo_combo.bind('<<ComboboxSelected>>', self.on_algorithm_change)
 
         # Simulation controls
         sim_frame = ttk.LabelFrame(left_panel, text="Simulation")
@@ -276,6 +276,14 @@ class NodeClassifierGUI:
 
         self.results_tree.pack(fill=tk.X, padx=5, pady=5)
         self.results_tree.bind('<<TreeviewSelect>>', self.on_results_select)
+
+        # Add sorting functionality to column headers
+        for col in ['#0', 'Node', 'Bucket', 'Score', 'CPU%', 'CPUP', 'MEM%', 'MEMP']:
+            self.results_tree.heading(col, command=lambda c=col: self.sort_results_column(c, False))
+
+        # Track sorting state
+        self.results_sort_column = None
+        self.results_sort_reverse = False
 
         self.current_scenarios = {}
         self.selected_node_id = None
@@ -504,6 +512,15 @@ class NodeClassifierGUI:
             if mode.value == threshold_str:
                 return mode
         return ThresholdMode.ASYMMETRIC_LOW  # Default
+
+    def on_algorithm_change(self, event=None):
+        """Handle algorithm selection change."""
+        # Update the visualization with the new algorithm
+        self.update_visualization()
+
+        # Update the simulator's classifier if simulator is active
+        if self.simulator:
+            self.simulator.classifier = self._create_classifier()
 
     def create_three_bucket_colormap(self):
         """Create a custom colormap for three-bucket classification with clear separation."""
@@ -1097,6 +1114,46 @@ class NodeClassifierGUI:
                 if result_index < len(self.classified_nodes):
                     node_name = self.classified_nodes[result_index][0].name
                     self._set_selected_node(node_name)
+
+    def sort_results_column(self, col, reverse):
+        """Sort results table by the specified column."""
+        # Get all items from the tree
+        items = [(self.results_tree.set(item, col), item) for item in self.results_tree.get_children('')]
+
+        # If sorting by the same column, toggle the reverse order
+        if col == self.results_sort_column:
+            reverse = not self.results_sort_reverse
+
+        # Sort items based on column type
+        if col == '#0':  # Rank column
+            items.sort(key=lambda t: int(t[0]), reverse=reverse)
+        elif col in ['Score', 'CPU%', 'CPUP', 'MEM%', 'MEMP']:  # Numeric columns
+            items.sort(key=lambda t: float(t[0]), reverse=reverse)
+        else:  # Text columns (Node, Bucket)
+            items.sort(key=lambda t: t[0], reverse=reverse)
+
+        # Rearrange items in sorted order
+        for index, (val, item) in enumerate(items):
+            self.results_tree.move(item, '', index)
+
+        # Update sorting state
+        self.results_sort_column = col
+        self.results_sort_reverse = reverse
+
+        # Update column heading to show sort direction
+        for c in ['#0', 'Node', 'Bucket', 'Score', 'CPU%', 'CPUP', 'MEM%', 'MEMP']:
+            heading_text = self.results_tree.heading(c)['text']
+            # Remove existing sort indicators
+            heading_text = heading_text.replace(' ▲', '').replace(' ▼', '')
+
+            if c == col:
+                # Add sort indicator
+                if reverse:
+                    heading_text += ' ▼'
+                else:
+                    heading_text += ' ▲'
+
+            self.results_tree.heading(c, text=heading_text)
 
     def update_vm_limits(self):
         """Update VM resource limits for all nodes and regenerate VMs."""
