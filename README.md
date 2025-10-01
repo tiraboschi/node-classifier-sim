@@ -87,8 +87,10 @@ python gui.py
 4. **Pressure Focused**: Prioritizes PSI pressure metrics (identifies stressed nodes)
 5. **Weighted RMS Positive Deviation**: Cluster-relative algorithm focusing on nodes above average with weighted RMS calculation (weights: 0.15 for usage, 0.35 for pressure metrics)
 6. **Pareto Front (NSGA-II)**: Multi-objective optimization using non-dominated sorting and crowding distance to find optimal trade-offs across all metrics
-7. **Resource Type (CPU)**: CPU-focused algorithm considering usage and pressure
-8. **Resource Type (Memory)**: Memory-focused algorithm considering usage and pressure
+7. **Centroid Distance**: Measures distance from cluster center in 4D space - identifies outliers (Note: treats under-utilized and over-utilized nodes equally if at same distance from center)
+8. **Directional Centroid Distance**: Measures only positive deviations from cluster center - ensures overutilized nodes rank higher than underutilized nodes (better for load-aware rebalancing)
+9. **Resource Type (CPU)**: CPU-focused algorithm considering usage and pressure
+10. **Resource Type (Memory)**: Memory-focused algorithm considering usage and pressure
 
 ## Three-Bucket Classification
 

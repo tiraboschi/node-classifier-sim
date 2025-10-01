@@ -302,6 +302,135 @@ class ParetoFrontAlgorithm(ClassificationAlgorithm):
         # When called individually, use average of all metrics as fallback
         return (node.cpu_usage + node.cpu_pressure + node.memory_usage + node.memory_pressure) / 4.0
 
+class CentroidDistanceAlgorithm(ClassificationAlgorithm):
+    """Centroid-based classification using distance from cluster center.
+
+    Calculates the multidimensional centroid (center) of all nodes in the cluster,
+    then ranks nodes based on their Euclidean distance from this center point.
+    Nodes closer to the center are considered more balanced, while nodes farther
+    from the center are considered outliers with higher load.
+
+    NOTE: This algorithm treats under-utilized and over-utilized nodes the same way
+    if they are at equal distance from the center.
+    """
+
+    def __init__(self):
+        super().__init__("Centroid Distance")
+
+    def classify_nodes(self, nodes: List[Node]) -> List[Tuple[Node, float]]:
+        """Classify nodes based on distance from cluster centroid."""
+        if not nodes:
+            return []
+
+        # Calculate cluster centroid (average of all nodes in 4D space)
+        centroid_cpu_usage = sum(node.cpu_usage for node in nodes) / len(nodes)
+        centroid_cpu_pressure = sum(node.cpu_pressure for node in nodes) / len(nodes)
+        centroid_memory_usage = sum(node.memory_usage for node in nodes) / len(nodes)
+        centroid_memory_pressure = sum(node.memory_pressure for node in nodes) / len(nodes)
+
+        # Calculate distance from centroid for each node
+        scored_nodes = []
+        for node in nodes:
+            # Euclidean distance in 4D space from centroid
+            distance = math.sqrt(
+                (node.cpu_usage - centroid_cpu_usage) ** 2 +
+                (node.cpu_pressure - centroid_cpu_pressure) ** 2 +
+                (node.memory_usage - centroid_memory_usage) ** 2 +
+                (node.memory_pressure - centroid_memory_pressure) ** 2
+            )
+            scored_nodes.append((node, distance))
+
+        # Normalize scores to [0, 1] range
+        if scored_nodes:
+            max_distance = max(score for _, score in scored_nodes)
+            if max_distance > 0:
+                scored_nodes = [(node, score / max_distance) for node, score in scored_nodes]
+
+        # Sort by distance (ascending - nodes closer to center are less loaded)
+        return sorted(scored_nodes, key=lambda x: x[1])
+
+    def calculate_score(self, node: Node) -> float:
+        """Calculate score for a single node (fallback when no cluster context)."""
+        # When called individually, use Euclidean distance from ideal center (0.5, 0.5, 0.5, 0.5)
+        # This assumes a balanced node would be at 50% of all metrics
+        ideal_center = 0.5
+        return math.sqrt(
+            (node.cpu_usage - ideal_center) ** 2 +
+            (node.cpu_pressure - ideal_center) ** 2 +
+            (node.memory_usage - ideal_center) ** 2 +
+            (node.memory_pressure - ideal_center) ** 2
+        ) / 2.0  # Divide by 2 to normalize to [0, 1] range
+
+class DirectionalCentroidDistanceAlgorithm(ClassificationAlgorithm):
+    """Directional Centroid Distance - measures positive deviation from cluster center.
+
+    Calculates the multidimensional centroid (center) of all nodes in the cluster,
+    then ranks nodes based on how much they exceed the center in each dimension.
+    Only positive deviations (above center) contribute to the score.
+
+    This ensures overutilized nodes get higher scores than underutilized nodes,
+    solving the limitation of standard Centroid Distance.
+    """
+
+    def __init__(self):
+        super().__init__("Directional Centroid Distance")
+
+    def classify_nodes(self, nodes: List[Node]) -> List[Tuple[Node, float]]:
+        """Classify nodes based on positive deviation from cluster centroid."""
+        if not nodes:
+            return []
+
+        # Calculate cluster centroid (average of all nodes in 4D space)
+        centroid_cpu_usage = sum(node.cpu_usage for node in nodes) / len(nodes)
+        centroid_cpu_pressure = sum(node.cpu_pressure for node in nodes) / len(nodes)
+        centroid_memory_usage = sum(node.memory_usage for node in nodes) / len(nodes)
+        centroid_memory_pressure = sum(node.memory_pressure for node in nodes) / len(nodes)
+
+        # Calculate directional distance from centroid for each node
+        scored_nodes = []
+        for node in nodes:
+            # Only positive deviations count (nodes above center)
+            # Nodes below center get 0 for that dimension
+            cpu_usage_dev = max(0, node.cpu_usage - centroid_cpu_usage)
+            cpu_pressure_dev = max(0, node.cpu_pressure - centroid_cpu_pressure)
+            memory_usage_dev = max(0, node.memory_usage - centroid_memory_usage)
+            memory_pressure_dev = max(0, node.memory_pressure - centroid_memory_pressure)
+
+            # Euclidean distance in 4D space using only positive deviations
+            distance = math.sqrt(
+                cpu_usage_dev ** 2 +
+                cpu_pressure_dev ** 2 +
+                memory_usage_dev ** 2 +
+                memory_pressure_dev ** 2
+            )
+            scored_nodes.append((node, distance))
+
+        # Normalize scores to [0, 1] range
+        if scored_nodes:
+            max_distance = max(score for _, score in scored_nodes)
+            if max_distance > 0:
+                scored_nodes = [(node, score / max_distance) for node, score in scored_nodes]
+
+        # Sort by distance (ascending - nodes below/at center get lower scores)
+        return sorted(scored_nodes, key=lambda x: x[1])
+
+    def calculate_score(self, node: Node) -> float:
+        """Calculate score for a single node (fallback when no cluster context)."""
+        # When called individually, use positive deviation from ideal center (0.5, 0.5, 0.5, 0.5)
+        # This assumes a balanced node would be at 50% of all metrics
+        ideal_center = 0.5
+        cpu_usage_dev = max(0, node.cpu_usage - ideal_center)
+        cpu_pressure_dev = max(0, node.cpu_pressure - ideal_center)
+        memory_usage_dev = max(0, node.memory_usage - ideal_center)
+        memory_pressure_dev = max(0, node.memory_pressure - ideal_center)
+
+        return math.sqrt(
+            cpu_usage_dev ** 2 +
+            cpu_pressure_dev ** 2 +
+            memory_usage_dev ** 2 +
+            memory_pressure_dev ** 2
+        ) / 2.0  # Divide by 2 to normalize to [0, 1] range
+
 def get_default_algorithms() -> List[ClassificationAlgorithm]:
     """Get a list of default classification algorithms."""
     return [
@@ -311,6 +440,8 @@ def get_default_algorithms() -> List[ClassificationAlgorithm]:
         PressureFocusedAlgorithm(),
         WeightedRMSPositiveDeviationAlgorithm(),
         ParetoFrontAlgorithm(),
+        CentroidDistanceAlgorithm(),
+        DirectionalCentroidDistanceAlgorithm(),
         ResourceTypeAlgorithm("cpu"),
         ResourceTypeAlgorithm("memory")
     ]
