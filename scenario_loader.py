@@ -1,7 +1,8 @@
 import json
 from typing import List, Dict, Any
 from pathlib import Path
-from node import Node
+from node import Node, VM
+import random
 
 class ScenarioLoader:
     """Loads and manages node scenarios from JSON files."""
@@ -61,28 +62,122 @@ class ScenarioLoader:
 
         Rules:
         - Under 70% utilization: pressure is almost 0 (0-5%)
-        - Over 70% utilization: pressure grows, reaching up to 30% at 100% utilization
+        - 70-90% utilization: pressure grows moderately
+        - 90-100% utilization: pressure grows exponentially (approaching saturation)
+
+        This reflects reality: as resources approach limits, pressure increases dramatically.
         """
         if utilization < 0.7:
             # Low utilization: minimal pressure (0-5%)
             return min(0.05, utilization * 0.07)
+        elif utilization < 0.9:
+            # Moderate utilization: linear growth from ~0 to ~0.20
+            # At 70%: ~0.0, At 90%: ~0.20
+            pressure_factor = (utilization - 0.7) / 0.2  # 0 to 1 for 70% to 90%
+            return pressure_factor * 0.20
         else:
-            # High utilization: pressure grows from 0 to 30%
-            # Linear growth from 70% utilization onwards
-            pressure_factor = (utilization - 0.7) / 0.3  # 0 to 1 for 70% to 100%
-            return pressure_factor * 0.3  # Scale to max 30%
+            # High utilization (90-100%): exponential growth from 0.20 to 0.80
+            # Use quadratic/exponential curve to show pressure rising sharply
+            pressure_factor = (utilization - 0.9) / 0.1  # 0 to 1 for 90% to 100%
+            # Quadratic growth: pressure rises sharply as we approach 100%
+            return 0.20 + (pressure_factor ** 2) * 0.60  # 0.20 at 90%, up to 0.80 at 100%
 
     @staticmethod
     def create_sample_scenarios() -> Dict[str, List[Node]]:
         """Create sample scenarios with realistic utilization-pressure relationships."""
         import random
 
+        # Global VM counter for unique IDs across all nodes
+        vm_id_counter = 0
+
         def create_realistic_node(name: str, cpu_target: float, mem_target: float,
-                                variance: float = 0.05) -> Node:
-            """Create a node with realistic pressure values based on utilization."""
+                                variance: float = 0.05,
+                                vm_cpu_percent: float = 0.02,
+                                vm_memory_percent: float = 0.04) -> Node:
+            """
+            Create a node with realistic pressure values based on utilization.
+            Creates VMs with random consumption that sum to approximately the target utilization.
+
+            Args:
+                name: Node name
+                cpu_target: Target CPU utilization (0.0-1.0)
+                mem_target: Target memory utilization (0.0-1.0)
+                variance: Random variance to add (default 5%)
+                vm_cpu_percent: Maximum CPU consumption per VM (default 2%)
+                vm_memory_percent: Maximum memory consumption per VM (default 4%)
+            """
+            nonlocal vm_id_counter
+
             # Add some variance to targets
-            cpu_usage = max(0.0, min(1.0, cpu_target + random.uniform(-variance, variance)))
-            mem_usage = max(0.0, min(1.0, mem_target + random.uniform(-variance, variance)))
+            cpu_target_with_variance = max(0.0, min(1.0, cpu_target + random.uniform(-variance, variance)))
+            mem_target_with_variance = max(0.0, min(1.0, mem_target + random.uniform(-variance, variance)))
+
+            # Create VMs with random consumption until we reach target utilization
+            vms = []
+            cpu_accumulated = 0.0
+            mem_accumulated = 0.0
+
+            # Calculate target ratio to create VMs that maintain it
+            target_ratio = cpu_target_with_variance / mem_target_with_variance if mem_target_with_variance > 0 else float('inf')
+
+            # Keep creating VMs until we approach both targets
+            safety_counter = 0
+            while safety_counter < 100:
+                # Calculate remaining needed
+                cpu_remaining = cpu_target_with_variance - cpu_accumulated
+                mem_remaining = mem_target_with_variance - mem_accumulated
+
+                # Stop if both targets are reached (within 10% of max VM consumption)
+                if cpu_remaining < vm_cpu_percent * 0.1 and mem_remaining < vm_memory_percent * 0.1:
+                    break
+
+                # Create VM maintaining the target ratio to avoid overshooting memory
+                if mem_target_with_variance == 0:
+                    # Only CPU needed
+                    vm_cpu = random.uniform(0, min(vm_cpu_percent, cpu_remaining + vm_cpu_percent * 0.5))
+                    vm_memory = 0
+                elif cpu_target_with_variance == 0:
+                    # Only memory needed
+                    vm_cpu = 0
+                    vm_memory = random.uniform(0, min(vm_memory_percent, mem_remaining + vm_memory_percent * 0.5))
+                else:
+                    # Both resources needed - create VM maintaining ratio
+                    vm_cpu = random.uniform(0, min(vm_cpu_percent, cpu_remaining + vm_cpu_percent * 0.5))
+                    vm_memory = vm_cpu / target_ratio
+
+                    # If memory would exceed max or remaining + buffer, scale down
+                    if vm_memory > vm_memory_percent or vm_memory > mem_remaining + vm_memory_percent * 0.5:
+                        vm_memory = min(vm_memory_percent, mem_remaining + vm_memory_percent * 0.5)
+                        vm_cpu = vm_memory * target_ratio
+
+                        # If CPU now exceeds limits, scale down again
+                        if vm_cpu > vm_cpu_percent:
+                            vm_cpu = vm_cpu_percent
+                            vm_memory = vm_cpu / target_ratio
+
+                # Ensure valid values
+                vm_cpu = max(0, vm_cpu)
+                vm_memory = max(0, vm_memory)
+
+                if vm_cpu <= 0 and vm_memory <= 0:
+                    break
+
+                # Create the VM
+                vm_id_counter += 1
+                vm = VM(
+                    id=f"vm-{vm_id_counter}",
+                    cpu_consumption=vm_cpu,
+                    memory_consumption=vm_memory
+                )
+                vms.append(vm)
+
+                cpu_accumulated += vm_cpu
+                mem_accumulated += vm_memory
+                safety_counter += 1
+
+            # Calculate actual utilization from VMs
+            cpu_usage = min(1.0, cpu_accumulated)
+            mem_usage = min(1.0, mem_accumulated)
 
             # Calculate realistic pressures
             cpu_pressure = ScenarioLoader.calculate_pressure_from_utilization(cpu_usage)
@@ -96,7 +191,7 @@ class ScenarioLoader:
             cpu_pressure = max(0.0, min(1.0, cpu_pressure))
             mem_pressure = max(0.0, min(1.0, mem_pressure))
 
-            return Node(name, cpu_usage, cpu_pressure, mem_usage, mem_pressure)
+            return Node(name, cpu_usage, cpu_pressure, mem_usage, mem_pressure, vms)
 
         # Set seed for reproducible scenarios
         random.seed(42)
@@ -111,41 +206,41 @@ class ScenarioLoader:
                 create_realistic_node("node-6", 0.22, 0.28),
             ],
             "mixed_load": [
-                create_realistic_node("node-1", 0.45, 0.60),
-                create_realistic_node("node-2", 0.75, 0.40),  # High CPU, moderate memory
-                create_realistic_node("node-3", 0.35, 0.80),  # Moderate CPU, high memory
-                create_realistic_node("node-4", 0.25, 0.65),
-                create_realistic_node("node-5", 0.85, 0.55),  # High CPU
-                create_realistic_node("node-6", 0.55, 0.45),
-                create_realistic_node("node-7", 0.65, 0.75),
-                create_realistic_node("node-8", 0.40, 0.85),  # High memory
-                create_realistic_node("node-9", 0.30, 0.50),  # Low-moderate load
-                create_realistic_node("node-10", 0.90, 0.70), # Very high CPU
-                create_realistic_node("node-11", 0.50, 0.35), # Moderate balanced
-                create_realistic_node("node-12", 0.70, 0.90), # High memory pressure
+                create_realistic_node("node-1", 0.45, 0.50),
+                create_realistic_node("node-2", 0.75, 0.35),  # High CPU, moderate memory
+                create_realistic_node("node-3", 0.35, 0.65),  # Moderate CPU, higher memory
+                create_realistic_node("node-4", 0.25, 0.45),
+                create_realistic_node("node-5", 0.85, 0.40),  # High CPU, moderate memory
+                create_realistic_node("node-6", 0.55, 0.30),
+                create_realistic_node("node-7", 0.65, 0.55),
+                create_realistic_node("node-8", 0.40, 0.70),  # Higher memory
+                create_realistic_node("node-9", 0.30, 0.35),  # Low-moderate load
+                create_realistic_node("node-10", 0.90, 0.50), # Very high CPU, moderate memory
+                create_realistic_node("node-11", 0.50, 0.25), # Moderate CPU, lower memory
+                create_realistic_node("node-12", 0.70, 0.60), # High CPU, moderate-high memory
             ],
             "heavy_load": [
-                create_realistic_node("node-1", 0.85, 0.90),
-                create_realistic_node("node-2", 0.90, 0.85),
-                create_realistic_node("node-3", 0.80, 0.95),
-                create_realistic_node("node-4", 0.88, 0.82),
-                create_realistic_node("node-5", 0.75, 0.78),
-                create_realistic_node("node-6", 0.92, 0.88),
-                create_realistic_node("node-7", 0.87, 0.83),
-                create_realistic_node("node-8", 0.83, 0.93),
-                create_realistic_node("node-9", 0.89, 0.86),
-                create_realistic_node("node-10", 0.78, 0.80),
+                create_realistic_node("node-1", 0.85, 0.65),
+                create_realistic_node("node-2", 0.90, 0.70),
+                create_realistic_node("node-3", 0.80, 0.75),
+                create_realistic_node("node-4", 0.88, 0.60),
+                create_realistic_node("node-5", 0.75, 0.55),
+                create_realistic_node("node-6", 0.92, 0.68),
+                create_realistic_node("node-7", 0.87, 0.72),
+                create_realistic_node("node-8", 0.83, 0.78),
+                create_realistic_node("node-9", 0.89, 0.66),
+                create_realistic_node("node-10", 0.78, 0.58),
             ],
-            "realistic_progression": [
+            "simple_progression": [
                 # Show progression from low to high utilization with realistic pressure
                 create_realistic_node("node-1", 0.10, 0.15),  # Very low - minimal pressure
                 create_realistic_node("node-2", 0.30, 0.35),  # Low - minimal pressure
-                create_realistic_node("node-3", 0.50, 0.55),  # Medium - minimal pressure
-                create_realistic_node("node-4", 0.65, 0.68),  # Getting higher - still minimal pressure
-                create_realistic_node("node-5", 0.72, 0.75),  # Above 70% - pressure starts
-                create_realistic_node("node-6", 0.80, 0.82),  # High - noticeable pressure
-                create_realistic_node("node-7", 0.90, 0.88),  # Very high - significant pressure
-                create_realistic_node("node-8", 0.95, 0.92),  # Near max - high pressure
+                create_realistic_node("node-3", 0.50, 0.45),  # Medium - minimal pressure
+                create_realistic_node("node-4", 0.65, 0.55),  # Getting higher - still minimal pressure
+                create_realistic_node("node-5", 0.72, 0.60),  # Above 70% - pressure starts
+                create_realistic_node("node-6", 0.80, 0.65),  # High - noticeable pressure
+                create_realistic_node("node-7", 0.90, 0.70),  # Very high - significant pressure
+                create_realistic_node("node-8", 0.95, 0.75),  # Near max - high pressure
             ]
         }
 

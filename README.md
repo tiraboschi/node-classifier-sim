@@ -1,6 +1,6 @@
-# Kubernetes Node Classification Simulator
+# K8s Load Aware Rebalancing Simulator
 
-A comprehensive simulator for Kubernetes node classification algorithms that allows you to compare different approaches for ordering nodes from least loaded to most loaded. Features both traditional ranking and three-bucket utilization classification.
+A comprehensive simulator for load-aware rebalancing of KubeVirt VMs running on Kubernetes. This tool simulates how the Descheduler redistributes VMs based on node load classification, allowing you to compare different algorithms and threshold strategies for optimal cluster balance.
 
 ## Features
 
@@ -24,7 +24,8 @@ A comprehensive simulator for Kubernetes node classification algorithms that all
 - **Dual visualization**: Side-by-side scatter plots (Usage vs Pressure)
 - **Three-bucket visualization**: Custom color gradients (blue→light blue→green→orange→red)
 - **Smart colorbar**: Shows thresholds, cluster averages, and node counts for each bucket
-- **Multiple scenarios**: Switch between light_load, mixed_load, heavy_load, and realistic_progression
+- **Multiple scenarios**: Switch between light_load, mixed_load, heavy_load, and simple_progression
+- **VM-based simulation**: Step-by-step finite state simulator with VM tracking and descheduler
 
 ## Installation
 
@@ -74,9 +75,9 @@ python gui.py
 
 ### GUI Screenshot
 
-![Node Classifier GUI](node_classifier_gui.png)
+![K8s Load Aware Rebalancing Simulator GUI](lab_simulator_gui.png)
 
-*Interactive GUI showing dual scatter plots with three-bucket classification. Features include: (1) dual visualization of resource usage and pressure metrics, (2) smart colorbar with node counts and thresholds, (3) real-time parameter editing with sliders, (4) bidirectional selection across panels, (5) algorithm comparison dropdown, and (6) three-bucket classification controls with dynamic threshold modes.*
+*Interactive GUI showing dual scatter plots with three-bucket classification. Features include: (1) dual visualization of resource usage and pressure metrics, (2) smart colorbar with node counts and thresholds, (3) real-time parameter editing with sliders, (4) bidirectional selection across panels, (5) algorithm comparison dropdown, (6) three-bucket classification controls with dynamic threshold modes, and (7) simulation history panel with detailed action log for each step.*
 
 ## Implemented Algorithms
 
@@ -104,14 +105,71 @@ python gui.py
 - **Appropriately-utilized** (■): Nodes within normal range of cluster average
 - **Over-utilized** (▲): Nodes significantly above cluster average
 
+## KubeVirt VM Rebalancing Simulator
+
+This simulator models how the Kubernetes Descheduler redistributes KubeVirt VMs across nodes based on load-aware classification. It provides step-by-step visualization of VM migrations and their impact on cluster balance.
+
+### How It Works
+
+1. **KubeVirt VM Tracking**: Each K8s node runs KubeVirt VMs with unique IDs and specific resource consumption
+   - Each VM consumes random amounts: 0-6% CPU, 0-4% memory (as percentage of node resources)
+   - VMs maintain their resource footprint when migrated between nodes
+   - Node utilization = sum of all VM consumption on that node
+   - **Note**: VM consumption is relative to the node capacity, not absolute values
+
+2. **Load-Aware Classification**: At each step, nodes are classified into three categories using the selected algorithm and threshold mode
+   - **Under-utilized**: Nodes with available capacity that can accept VMs
+   - **Appropriately-utilized**: Nodes with balanced load
+   - **Over-utilized**: Nodes that should offload VMs to reduce pressure
+
+3. **Descheduler VM Migration**: The Descheduler redistributes VMs from over-utilized to under-utilized nodes
+   - Configurable cluster-wide limit: up to 5 VMs per step (adjustable 1-50)
+   - Configurable per-node limit: maximum 2 VMs from any single node per step (adjustable 1-20)
+   - Randomly selects VMs from over-utilized nodes
+   - **Randomly selects destination nodes** from under-utilized nodes (mimics actual Kubernetes scheduler behavior, which is not load-aware)
+   - **Memory constraint**: Nodes reject VMs if memory would exceed 100% (non-compressible resource)
+   - **CPU flexibility**: CPU can exceed 100% (compressible resource - VMs slow down but continue running)
+
+4. **Metric Updates**: After VM migrations, node CPU/memory utilization and PSI pressure are recalculated
+   - Utilization = sum of all VMs running on the node
+   - **PSI pressure estimation**: CPU and memory pressure are automatically estimated using heuristics based on utilization levels
+   - Pressure increases dramatically as utilization approaches limits (exponential growth 90-100%)
+   - **Manual pressure override**: Users can manually adjust PSI pressure values at any time via sliders to evaluate classifier behavior under different pressure scenarios
+
+### Using the Simulator
+
+The simulator is always active in the GUI. To use it:
+1. Load a scenario (e.g., "mixed_load" with 12 nodes)
+2. Adjust VM/Node resource ratios (default: 6% CPU, 4% memory per VM)
+3. Configure migration limits (default: 5 VMs per cluster step, 2 per node)
+4. Click "Step" to execute one simulation step and observe VM migrations
+5. View detailed migration history showing VM movements and utilization changes
+6. Click "Reset" to return to the initial state
+
+### Simulation History
+
+The history panel shows for each step:
+- VM movements with IDs: `vm-42: node-3 → node-5`
+- Score changes: `(scores: 0.850 → 0.420)`
+- Utilization deltas: `node-3: CPU 0.75→0.73 (-0.02), MEM 0.40→0.36 (-0.04)`
+- Classification summary: `3 under, 6 appropriate, 3 over`
+
+### Key Characteristics
+
+- **Realistic VM diversity**: Mixed CPU/memory ratios prevent uniform node behavior
+- **Memory protection**: Hard limit at 100% memory (realistic constraint)
+- **Pressure modeling**: Exponential pressure growth at high utilization
+- **History tracking**: Full audit trail of all VM movements
+- **Configurable limits**: Adjustable per-node and per-cluster VM movement limits
+
 ## Sample Scenarios
 
 The simulator includes four realistic scenarios:
 
 1. **light_load**: 6 nodes with low utilization (10-30%), minimal pressure
-2. **mixed_load**: 12 nodes with varied utilization (25-95%), mixed pressure patterns
+2. **mixed_load**: 12 nodes with varied utilization (25-95%), mixed pressure patterns - **default scenario**
 3. **heavy_load**: 10 nodes with high utilization (75-95%), significant pressure
-4. **realistic_progression**: 8 nodes showing gradual load increase with authentic pressure curves
+4. **simple_progression**: 8 nodes showing gradual load increase from 10% to 95% (useful for understanding threshold behavior)
 
 ## JSON Scenario Format
 
@@ -123,20 +181,35 @@ The simulator includes four realistic scenarios:
       "cpu_usage": 0.5,
       "cpu_pressure": 0.2,
       "memory_usage": 0.7,
-      "memory_pressure": 0.1
+      "memory_pressure": 0.1,
+      "vms": [
+        {
+          "id": "vm-1",
+          "cpu_consumption": 0.03,
+          "memory_consumption": 0.02
+        },
+        {
+          "id": "vm-2",
+          "cpu_consumption": 0.05,
+          "memory_consumption": 0.04
+        }
+      ]
     }
   ]
 }
 ```
 
+**Note**: The `vms` field contains the individual VMs running on each node with their specific resource consumption. When you save scenarios from the GUI or generate them via CLI, VMs are automatically included to ensure reproducibility of exact VM configurations across sessions.
+
 ## Project Structure
 
-- `node.py`: Node class representing K8s nodes with metric validation
+- `node.py`: Node and VM classes representing K8s nodes with metric validation and VM tracking
 - `algorithms.py`: Classification algorithm framework and implementations
 - `classifier.py`: Three-bucket classification system with dynamic thresholds
-- `scenario_loader.py`: JSON scenario loading/saving with realistic data generation
+- `scenario_loader.py`: JSON scenario loading/saving with realistic data generation and VM creation
+- `simulator.py`: Finite state simulator with VM tracking, descheduler logic, and history management
 - `cli.py`: Command-line interface supporting both ranking and classification modes
-- `gui.py`: Interactive GUI with dual plots, drag-and-drop editing, and real-time visualization
+- `gui.py`: Interactive GUI with dual plots, drag-and-drop editing, simulation mode, and real-time visualization
 
 ## Technical Highlights
 

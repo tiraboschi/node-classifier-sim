@@ -10,17 +10,25 @@ from node import Node
 from algorithms import get_default_algorithms, ClassificationAlgorithm
 from scenario_loader import ScenarioLoader
 from classifier import NodeClassifier, ThresholdMode, ThresholdConfig, UtilizationCategory, get_category_color
+from simulator import Simulator, SimulationConfig
 import matplotlib.colors as mcolors
 
 class NodeClassifierGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Kubernetes Node Classification Simulator")
+        self.root.title("K8s Load Aware Rebalancing Simulator")
         self.root.geometry("1400x800")
 
         self.algorithms = get_default_algorithms()
         self.current_scenario: List[Node] = []
         self.scenario_name = "Current Scenario"
+
+        # Simulation state (always enabled)
+        self.simulator: Optional[Simulator] = None
+        self.simulation_mode = True
+
+        # VM ID counter for generating unique VM IDs across all nodes
+        self.vm_id_counter = 0
 
         self.setup_ui()
         self.load_sample_data()
@@ -56,14 +64,16 @@ class NodeClassifierGUI:
         nodes_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
         # Node list
-        self.nodes_tree = ttk.Treeview(nodes_frame, columns=('CPU%', 'CPUP', 'MEM%', 'MEMP'), show='tree headings', height=6)
+        self.nodes_tree = ttk.Treeview(nodes_frame, columns=('VMs', 'CPU%', 'CPUP', 'MEM%', 'MEMP'), show='tree headings', height=6)
         self.nodes_tree.heading('#0', text='Node Name')
+        self.nodes_tree.heading('VMs', text='VMs')
         self.nodes_tree.heading('CPU%', text='CPU%')
         self.nodes_tree.heading('CPUP', text='CPU P')
         self.nodes_tree.heading('MEM%', text='MEM%')
         self.nodes_tree.heading('MEMP', text='MEM P')
 
         self.nodes_tree.column('#0', width=80)
+        self.nodes_tree.column('VMs', width=40)
         self.nodes_tree.column('CPU%', width=50)
         self.nodes_tree.column('CPUP', width=50)
         self.nodes_tree.column('MEM%', width=50)
@@ -118,15 +128,82 @@ class NodeClassifierGUI:
         self.algo_combo.pack(fill=tk.X, padx=5, pady=5)
         self.algo_combo.bind('<<ComboboxSelected>>', self.update_visualization)
 
+        # Simulation controls
+        sim_frame = ttk.LabelFrame(left_panel, text="Simulation")
+        sim_frame.pack(fill=tk.X, pady=(0, 10))
+
+        # Simulation controls (step button, reset, etc.)
+        sim_controls = ttk.Frame(sim_frame)
+        sim_controls.pack(fill=tk.X, padx=5, pady=2)
+
+        self.step_button = ttk.Button(sim_controls, text="Step", command=self.simulation_step)
+        self.step_button.pack(side=tk.LEFT, padx=2)
+
+        self.reset_button = ttk.Button(sim_controls, text="Reset", command=self.reset_simulation)
+        self.reset_button.pack(side=tk.LEFT, padx=2)
+
+        # Step counter label
+        self.step_label = tk.Label(sim_controls, text="Step: 0", font=('TkDefaultFont', 9, 'bold'))
+        self.step_label.pack(side=tk.LEFT, padx=10)
+
+        # VM resource parameters
+        vm_params_frame = ttk.LabelFrame(sim_frame, text="VM/Node Resource Ratio (max %)")
+        vm_params_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        # VM CPU max
+        cpu_frame = ttk.Frame(vm_params_frame)
+        cpu_frame.pack(fill=tk.X, padx=5, pady=2)
+        ttk.Label(cpu_frame, text="VM CPU Max:", width=12).pack(side=tk.LEFT)
+        self.vm_cpu_max_var = tk.DoubleVar(value=0.06)
+        cpu_spinbox = ttk.Spinbox(cpu_frame, from_=0.01, to=0.50, increment=0.01,
+                                   textvariable=self.vm_cpu_max_var, width=8,
+                                   command=self.update_vm_limits)
+        cpu_spinbox.pack(side=tk.LEFT, padx=5)
+        ttk.Label(cpu_frame, text="(6% default)").pack(side=tk.LEFT)
+
+        # VM Memory max
+        mem_frame = ttk.Frame(vm_params_frame)
+        mem_frame.pack(fill=tk.X, padx=5, pady=2)
+        ttk.Label(mem_frame, text="VM Mem Max:", width=12).pack(side=tk.LEFT)
+        self.vm_mem_max_var = tk.DoubleVar(value=0.04)
+        mem_spinbox = ttk.Spinbox(mem_frame, from_=0.01, to=0.50, increment=0.01,
+                                   textvariable=self.vm_mem_max_var, width=8,
+                                   command=self.update_vm_limits)
+        mem_spinbox.pack(side=tk.LEFT, padx=5)
+        ttk.Label(mem_frame, text="(4% default)").pack(side=tk.LEFT)
+
+        # VM migration limits
+        migration_params_frame = ttk.LabelFrame(sim_frame, text="VM Migration Limits (per step)")
+        migration_params_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        # Max VMs per step (cluster-wide)
+        cluster_frame = ttk.Frame(migration_params_frame)
+        cluster_frame.pack(fill=tk.X, padx=5, pady=2)
+        ttk.Label(cluster_frame, text="Cluster Max:", width=12).pack(side=tk.LEFT)
+        self.max_vms_per_step_var = tk.IntVar(value=5)
+        cluster_spinbox = ttk.Spinbox(cluster_frame, from_=1, to=50, increment=1,
+                                       textvariable=self.max_vms_per_step_var, width=8,
+                                       command=self.update_migration_limits)
+        cluster_spinbox.pack(side=tk.LEFT, padx=5)
+        ttk.Label(cluster_frame, text="(5 default)").pack(side=tk.LEFT)
+
+        # Max VMs per node
+        node_frame = ttk.Frame(migration_params_frame)
+        node_frame.pack(fill=tk.X, padx=5, pady=2)
+        ttk.Label(node_frame, text="Per Node Max:", width=12).pack(side=tk.LEFT)
+        self.max_vms_per_node_var = tk.IntVar(value=2)
+        node_spinbox = ttk.Spinbox(node_frame, from_=1, to=20, increment=1,
+                                    textvariable=self.max_vms_per_node_var, width=8,
+                                    command=self.update_migration_limits)
+        node_spinbox.pack(side=tk.LEFT, padx=5)
+        ttk.Label(node_frame, text="(2 default)").pack(side=tk.LEFT)
+
         # Three-bucket classification controls
         bucket_frame = ttk.LabelFrame(left_panel, text="Three-Bucket Classification")
         bucket_frame.pack(fill=tk.X)
 
-        # Enable three-bucket classification checkbox
+        # Three-bucket classification is always enabled (core feature)
         self.use_buckets_var = tk.BooleanVar(value=True)
-        bucket_check = ttk.Checkbutton(bucket_frame, text="Enable three-bucket classification",
-                                     variable=self.use_buckets_var, command=self.update_visualization)
-        bucket_check.pack(anchor=tk.W, padx=5, pady=2)
 
         # Threshold mode selection
         threshold_frame = ttk.Frame(bucket_frame)
@@ -157,6 +234,21 @@ class NodeClassifierGUI:
         self.canvas.mpl_connect('button_press_event', self.on_plot_press)
         self.canvas.mpl_connect('motion_notify_event', self.on_plot_motion)
         self.canvas.mpl_connect('button_release_event', self.on_plot_release)
+
+        # Simulation history panel (only visible when simulation mode is active)
+        self.history_frame = ttk.LabelFrame(right_panel, text="Simulation History")
+
+        # Create text widget with scrollbar for history
+        history_scroll_frame = ttk.Frame(self.history_frame)
+        history_scroll_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        history_scrollbar = ttk.Scrollbar(history_scroll_frame)
+        history_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.history_text = tk.Text(history_scroll_frame, height=10, wrap=tk.WORD,
+                                   yscrollcommand=history_scrollbar.set)
+        self.history_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        history_scrollbar.config(command=self.history_text.yview)
 
         # Results panel
         results_frame = ttk.LabelFrame(right_panel, text="Classification Results")
@@ -203,6 +295,7 @@ class NodeClassifierGUI:
     def load_sample_data(self):
         """Load sample scenarios."""
         self.current_scenarios = ScenarioLoader.create_sample_scenarios()
+        self._update_vm_id_counter()
         self.update_scenario_combo()
         # Set default to mixed_load scenario
         scenario_names = list(self.current_scenarios.keys())
@@ -212,6 +305,23 @@ class NodeClassifierGUI:
         else:
             self.scenario_combo.current(0)
         self.on_scenario_change()
+
+        # Initialize simulator automatically (simulation mode always enabled)
+        self._initialize_simulator()
+
+    def _update_vm_id_counter(self):
+        """Update VM ID counter based on existing VMs across all scenarios."""
+        max_id = 0
+        for scenario_nodes in self.current_scenarios.values():
+            for node in scenario_nodes:
+                for vm in node.vms:
+                    # Extract numeric ID from vm.id (format: "vm-123")
+                    try:
+                        vm_num = int(vm.id.split('-')[1])
+                        max_id = max(max_id, vm_num)
+                    except (IndexError, ValueError):
+                        pass
+        self.vm_id_counter = max_id
 
     def update_scenario_combo(self):
         """Update the scenario combobox with available scenarios."""
@@ -224,6 +334,11 @@ class NodeClassifierGUI:
         if scenario_name and scenario_name in self.current_scenarios:
             self.current_scenario = self.current_scenarios[scenario_name]
             self.scenario_name = scenario_name
+
+            # If simulation is active, reset it with the new scenario
+            if self.simulator:
+                self.reset_simulation()
+
             self.update_nodes_tree()
             self.update_visualization()
 
@@ -234,7 +349,8 @@ class NodeClassifierGUI:
 
         for i, node in enumerate(self.current_scenario):
             self.nodes_tree.insert('', tk.END, iid=str(i), text=node.name,
-                                 values=(f"{node.cpu_usage:.2f}",
+                                 values=(f"{node.vm_count}",
+                                        f"{node.cpu_usage:.2f}",
                                         f"{node.cpu_pressure:.2f}",
                                         f"{node.memory_usage:.2f}",
                                         f"{node.memory_pressure:.2f}"))
@@ -825,24 +941,57 @@ class NodeClassifierGUI:
         x_param = plot_info['x_param']
         y_param = plot_info['y_param']
 
+        # Track if we're updating utilization (need to sync VMs)
+        updating_utilization = False
+        target_cpu = actual_node.cpu_usage
+        target_mem = actual_node.memory_usage
+
         # Set the new values
         if x_param == 'cpu_usage':
             actual_node.cpu_usage = x_value
+            target_cpu = x_value
+            updating_utilization = True
         elif x_param == 'cpu_pressure':
             actual_node.cpu_pressure = x_value
         elif x_param == 'memory_usage':
             actual_node.memory_usage = x_value
+            target_mem = x_value
+            updating_utilization = True
         elif x_param == 'memory_pressure':
             actual_node.memory_pressure = x_value
 
         if y_param == 'cpu_usage':
             actual_node.cpu_usage = y_value
+            target_cpu = y_value
+            updating_utilization = True
         elif y_param == 'cpu_pressure':
             actual_node.cpu_pressure = y_value
         elif y_param == 'memory_usage':
             actual_node.memory_usage = y_value
+            target_mem = y_value
+            updating_utilization = True
         elif y_param == 'memory_pressure':
             actual_node.memory_pressure = y_value
+
+        # If we're dragging in the usage plot, sync VMs to match new utilization
+        if updating_utilization:
+            self.vm_id_counter = actual_node.sync_vms_to_utilization(
+                target_cpu=target_cpu,
+                target_mem=target_mem,
+                vm_id_counter=self.vm_id_counter
+            )
+
+        # If simulation mode is active, sync changes to the simulator's nodes
+        if self.simulator:
+            for sim_node in self.simulator.nodes:
+                if sim_node.name == actual_node.name:
+                    # Update the simulator's copy of this node
+                    sim_node.cpu_usage = actual_node.cpu_usage
+                    sim_node.cpu_pressure = actual_node.cpu_pressure
+                    sim_node.memory_usage = actual_node.memory_usage
+                    sim_node.memory_pressure = actual_node.memory_pressure
+                    sim_node.vms = actual_node.vms  # Sync VMs too
+                    break
 
         # During dragging, only update the specific dot position and node tree
         # Don't re-run full visualization to avoid moving other nodes
@@ -948,6 +1097,169 @@ class NodeClassifierGUI:
                 if result_index < len(self.classified_nodes):
                     node_name = self.classified_nodes[result_index][0].name
                     self._set_selected_node(node_name)
+
+    def update_vm_limits(self):
+        """Update VM resource limits for all nodes and regenerate VMs."""
+        vm_cpu_max = self.vm_cpu_max_var.get()
+        vm_mem_max = self.vm_mem_max_var.get()
+
+        # Update all nodes in current scenario
+        for node in self.current_scenario:
+            # Regenerate VMs with new limits to match current utilization
+            self.vm_id_counter = node.sync_vms_to_utilization(
+                target_cpu=node.cpu_usage,
+                target_mem=node.memory_usage,
+                vm_cpu_max=vm_cpu_max,
+                vm_mem_max=vm_mem_max,
+                vm_id_counter=self.vm_id_counter
+            )
+
+        # If simulator is active, sync to simulator nodes too
+        if self.simulator:
+            for sim_node in self.simulator.nodes:
+                for node in self.current_scenario:
+                    if sim_node.name == node.name:
+                        sim_node.vms = node.vms
+                        sim_node.cpu_usage = node.cpu_usage
+                        sim_node.memory_usage = node.memory_usage
+                        break
+
+        # Update UI
+        self.update_nodes_tree()
+        self.update_visualization()
+
+    def update_migration_limits(self):
+        """Update VM migration limits in the simulator."""
+        if not self.simulator:
+            return  # No simulator active, nothing to update
+
+        # Update the simulator's config with new limits
+        self.simulator.config.max_vms_per_step = self.max_vms_per_step_var.get()
+        self.simulator.config.max_vms_per_node = self.max_vms_per_node_var.get()
+
+    def _create_classifier(self):
+        """Create a classifier with current algorithm and threshold settings."""
+        algorithm = self.get_current_algorithm()
+        threshold_mode = self.get_current_threshold_mode()
+        threshold_config = ThresholdConfig.from_mode(threshold_mode)
+        return NodeClassifier(algorithm, threshold_config)
+
+    def _create_simulation_config(self):
+        """Create a simulation config with current settings."""
+        return SimulationConfig(
+            max_vms_per_step=self.max_vms_per_step_var.get(),
+            max_vms_per_node=self.max_vms_per_node_var.get()
+        )
+
+    def _initialize_simulator(self):
+        """Initialize the simulator with the current scenario."""
+        if not self.current_scenario:
+            return
+
+        # Show history panel
+        self.history_frame.pack(fill=tk.X, pady=(10, 0), before=self.results_tree.master)
+
+        # Create simulator
+        self.simulator = Simulator(
+            initial_nodes=self.current_scenario,
+            classifier=self._create_classifier(),
+            config=self._create_simulation_config()
+        )
+
+        # Update UI
+        self.step_label.config(text=f"Step: {self.simulator.current_step}")
+        self.history_text.delete('1.0', tk.END)
+        self.history_text.insert(tk.END, "Simulation initialized.\n")
+
+    def simulation_step(self):
+        """Execute one simulation step."""
+        if not self.simulator:
+            return
+
+        # Capture before state for affected nodes
+        before_state = {}
+        for node in self.simulator.nodes:
+            before_state[node.name] = {
+                'cpu': node.cpu_usage,
+                'mem': node.memory_usage
+            }
+
+        # Execute step
+        step_state = self.simulator.step()
+
+        # Update step label
+        self.step_label.config(text=f"Step: {self.simulator.current_step}")
+
+        # Update current scenario with simulator's current state
+        self.current_scenario = self.simulator.nodes
+
+        # Update visualization and nodes tree
+        self.update_nodes_tree()
+        self.update_visualization()
+
+        # Add step information to history
+        history_msg = f"\n--- Step {step_state.step_number} ---\n"
+
+        if step_state.moves:
+            history_msg += f"Moved {len(step_state.moves)} VM(s):\n"
+            for move in step_state.moves:
+                history_msg += f"  • {move.vm_id}: {move.from_node} → {move.to_node} (scores: {move.from_node_score:.3f} → {move.to_node_score:.3f})\n"
+
+            # Track affected nodes and their utilization changes
+            affected_nodes = set()
+            for move in step_state.moves:
+                affected_nodes.add(move.from_node)
+                affected_nodes.add(move.to_node)
+
+            # Show utilization changes for affected nodes
+            history_msg += "\nUtilization changes:\n"
+            for node in step_state.nodes:
+                if node.name in affected_nodes:
+                    before = before_state[node.name]
+                    cpu_delta = node.cpu_usage - before['cpu']
+                    mem_delta = node.memory_usage - before['mem']
+                    cpu_sign = '+' if cpu_delta >= 0 else ''
+                    mem_sign = '+' if mem_delta >= 0 else ''
+                    history_msg += f"  • {node.name}: CPU {before['cpu']:.2f}→{node.cpu_usage:.2f} ({cpu_sign}{cpu_delta:.2f}), MEM {before['mem']:.2f}→{node.memory_usage:.2f} ({mem_sign}{mem_delta:.2f})\n"
+        else:
+            history_msg += "No VMs moved (no overutilized or underutilized nodes)\n"
+
+        # Add classification summary
+        under = sum(1 for r in step_state.classification_results if r.category == UtilizationCategory.UNDER_UTILIZED)
+        appropriate = sum(1 for r in step_state.classification_results if r.category == UtilizationCategory.APPROPRIATELY_UTILIZED)
+        over = sum(1 for r in step_state.classification_results if r.category == UtilizationCategory.OVER_UTILIZED)
+
+        history_msg += f"Classification: {under} under, {appropriate} appropriate, {over} over\n"
+
+        self.history_text.insert(tk.END, history_msg)
+        self.history_text.see(tk.END)  # Auto-scroll to bottom
+
+    def reset_simulation(self):
+        """Reset the simulation to initial state."""
+        if not self.simulator:
+            return
+
+        # Reload the original scenario
+        scenario_name = self.scenario_var.get()
+        if scenario_name and scenario_name in self.current_scenarios:
+            # Reload from the original stored scenarios
+            from copy import deepcopy
+            self.current_scenario = deepcopy(self.current_scenarios[scenario_name])
+
+            # Reinitialize simulator with current settings
+            self.simulator = Simulator(
+                initial_nodes=self.current_scenario,
+                classifier=self._create_classifier(),
+                config=self._create_simulation_config()
+            )
+
+            # Update UI
+            self.step_label.config(text=f"Step: {self.simulator.current_step}")
+            self.history_text.delete('1.0', tk.END)
+            self.history_text.insert(tk.END, "Simulation reset to initial state.\n")
+
+            self.update_nodes_tree()
+            self.update_visualization()
 
 def main():
     root = tk.Tk()
