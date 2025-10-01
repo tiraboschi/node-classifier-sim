@@ -89,8 +89,10 @@ python gui.py
 6. **Pareto Front (NSGA-II)**: Multi-objective optimization using non-dominated sorting and crowding distance to find optimal trade-offs across all metrics
 7. **Centroid Distance**: Measures distance from cluster center in 4D space - identifies outliers (Note: treats under-utilized and over-utilized nodes equally if at same distance from center)
 8. **Directional Centroid Distance**: Measures only positive deviations from cluster center - ensures overutilized nodes rank higher than underutilized nodes (better for load-aware rebalancing)
-9. **Resource Type (CPU)**: CPU-focused algorithm considering usage and pressure
-10. **Resource Type (Memory)**: Memory-focused algorithm considering usage and pressure
+9. **Variance Minimization**: Cluster balancing algorithm that penalizes any deviation from cluster mean (PSI pressure metrics weighted 2x as "alarm bells": CPU/Memory usage weight 1.0, CPU/Memory pressure weight 2.0) - Note: treats under-utilized and over-utilized nodes equally if at same distance from mean
+10. **Directional Variance Minimization**: Cluster balancing algorithm that only penalizes positive deviations from cluster mean - ensures overutilized nodes rank higher than underutilized nodes (PSI pressure weighted 2x, usage 1x)
+11. **Resource Type (CPU)**: CPU-focused algorithm considering usage and pressure
+12. **Resource Type (Memory)**: Memory-focused algorithm considering usage and pressure
 
 ## Three-Bucket Classification
 

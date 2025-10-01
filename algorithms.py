@@ -361,6 +361,155 @@ class CentroidDistanceAlgorithm(ClassificationAlgorithm):
             (node.memory_pressure - ideal_center) ** 2
         ) / 2.0  # Divide by 2 to normalize to [0, 1] range
 
+class VarianceMinimizationAlgorithm(ClassificationAlgorithm):
+    """Variance Minimization - balances cluster by penalizing nodes that increase variance.
+
+    Calculates how much each node contributes to the overall variance across all metrics.
+    Nodes that deviate most from cluster mean get higher scores (should offload VMs).
+    This ensures all nodes are "equally happy" by minimizing differences.
+
+    Pressure metrics are weighted higher (2x) since they indicate actual resource contention
+    and unhappy workloads, not just utilization.
+    """
+
+    def __init__(self):
+        super().__init__("Variance Minimization",
+                        cpu_usage_weight=1.0,
+                        cpu_pressure_weight=2.0,  # Pressure is an alarm bell
+                        memory_usage_weight=1.0,
+                        memory_pressure_weight=2.0)  # Pressure is an alarm bell
+
+    def classify_nodes(self, nodes: List[Node]) -> List[Tuple[Node, float]]:
+        """Classify nodes based on their contribution to cluster variance."""
+        if not nodes:
+            return []
+
+        # Calculate cluster means
+        n = len(nodes)
+        cpu_usage_mean = sum(node.cpu_usage for node in nodes) / n
+        cpu_pressure_mean = sum(node.cpu_pressure for node in nodes) / n
+        memory_usage_mean = sum(node.memory_usage for node in nodes) / n
+        memory_pressure_mean = sum(node.memory_pressure for node in nodes) / n
+
+        # For each node, calculate weighted squared deviation from mean
+        scored_nodes = []
+        for node in nodes:
+            # Squared deviations from cluster mean
+            cpu_usage_dev_sq = (node.cpu_usage - cpu_usage_mean) ** 2
+            cpu_pressure_dev_sq = (node.cpu_pressure - cpu_pressure_mean) ** 2
+            memory_usage_dev_sq = (node.memory_usage - memory_usage_mean) ** 2
+            memory_pressure_dev_sq = (node.memory_pressure - memory_pressure_mean) ** 2
+
+            # Apply weights (pressure metrics weighted 2x)
+            weighted_variance_contribution = (
+                self.params['cpu_usage_weight'] * cpu_usage_dev_sq +
+                self.params['cpu_pressure_weight'] * cpu_pressure_dev_sq +
+                self.params['memory_usage_weight'] * memory_usage_dev_sq +
+                self.params['memory_pressure_weight'] * memory_pressure_dev_sq
+            )
+
+            # Take square root to get a distance-like metric
+            score = math.sqrt(weighted_variance_contribution)
+            scored_nodes.append((node, score))
+
+        # Normalize scores to [0, 1] range
+        if scored_nodes:
+            max_score = max(score for _, score in scored_nodes)
+            if max_score > 0:
+                scored_nodes = [(node, score / max_score) for node, score in scored_nodes]
+
+        # Sort by score (ascending - nodes closest to mean are most balanced)
+        return sorted(scored_nodes, key=lambda x: x[1])
+
+    def calculate_score(self, node: Node) -> float:
+        """Calculate score for a single node (fallback when no cluster context)."""
+        # When called individually, use weighted average with pressure emphasis
+        return (
+            node.cpu_usage * self.params['cpu_usage_weight'] +
+            node.cpu_pressure * self.params['cpu_pressure_weight'] +
+            node.memory_usage * self.params['memory_usage_weight'] +
+            node.memory_pressure * self.params['memory_pressure_weight']
+        ) / (self.params['cpu_usage_weight'] +
+             self.params['cpu_pressure_weight'] +
+             self.params['memory_usage_weight'] +
+             self.params['memory_pressure_weight'])
+
+class DirectionalVarianceMinimizationAlgorithm(ClassificationAlgorithm):
+    """Directional Variance Minimization - balances cluster by penalizing nodes above mean.
+
+    Similar to Variance Minimization but only penalizes positive deviations from cluster mean.
+    Nodes below the mean get score of 0 (underutilized, should accept VMs).
+    Nodes above the mean get scored based on how far above they are (overutilized, should offload).
+
+    This ensures the algorithm correctly identifies overutilized vs underutilized nodes
+    for load-aware rebalancing. Pressure metrics weighted 2x as "alarm bells".
+    """
+
+    def __init__(self):
+        super().__init__("Directional Variance Minimization",
+                        cpu_usage_weight=1.0,
+                        cpu_pressure_weight=2.0,  # Pressure is an alarm bell
+                        memory_usage_weight=1.0,
+                        memory_pressure_weight=2.0)  # Pressure is an alarm bell
+
+    def classify_nodes(self, nodes: List[Node]) -> List[Tuple[Node, float]]:
+        """Classify nodes based on their positive deviation from cluster mean.
+
+        Only penalizes nodes ABOVE the cluster mean (overutilized).
+        Nodes below the mean get score of 0 (underutilized, available for VMs).
+        """
+        if not nodes:
+            return []
+
+        # Calculate cluster means
+        n = len(nodes)
+        cpu_usage_mean = sum(node.cpu_usage for node in nodes) / n
+        cpu_pressure_mean = sum(node.cpu_pressure for node in nodes) / n
+        memory_usage_mean = sum(node.memory_usage for node in nodes) / n
+        memory_pressure_mean = sum(node.memory_pressure for node in nodes) / n
+
+        # For each node, calculate weighted positive deviation from mean
+        scored_nodes = []
+        for node in nodes:
+            # Only count positive deviations (node above mean)
+            cpu_usage_dev = max(0, node.cpu_usage - cpu_usage_mean)
+            cpu_pressure_dev = max(0, node.cpu_pressure - cpu_pressure_mean)
+            memory_usage_dev = max(0, node.memory_usage - memory_usage_mean)
+            memory_pressure_dev = max(0, node.memory_pressure - memory_pressure_mean)
+
+            # Apply weights (pressure metrics weighted 2x)
+            weighted_deviation = (
+                self.params['cpu_usage_weight'] * cpu_usage_dev +
+                self.params['cpu_pressure_weight'] * cpu_pressure_dev +
+                self.params['memory_usage_weight'] * memory_usage_dev +
+                self.params['memory_pressure_weight'] * memory_pressure_dev
+            )
+
+            scored_nodes.append((node, weighted_deviation))
+
+        # Normalize scores to [0, 1] range
+        if scored_nodes:
+            max_score = max(score for _, score in scored_nodes)
+            if max_score > 0:
+                scored_nodes = [(node, score / max_score) for node, score in scored_nodes]
+
+        # Sort by score (ascending - nodes at/below mean ranked first)
+        return sorted(scored_nodes, key=lambda x: x[1])
+
+    def calculate_score(self, node: Node) -> float:
+        """Calculate score for a single node (fallback when no cluster context)."""
+        # When called individually, use weighted average with pressure emphasis
+        return (
+            node.cpu_usage * self.params['cpu_usage_weight'] +
+            node.cpu_pressure * self.params['cpu_pressure_weight'] +
+            node.memory_usage * self.params['memory_usage_weight'] +
+            node.memory_pressure * self.params['memory_pressure_weight']
+        ) / (self.params['cpu_usage_weight'] +
+             self.params['cpu_pressure_weight'] +
+             self.params['memory_usage_weight'] +
+             self.params['memory_pressure_weight'])
+
+
 class DirectionalCentroidDistanceAlgorithm(ClassificationAlgorithm):
     """Directional Centroid Distance - measures positive deviation from cluster center.
 
@@ -442,6 +591,8 @@ def get_default_algorithms() -> List[ClassificationAlgorithm]:
         ParetoFrontAlgorithm(),
         CentroidDistanceAlgorithm(),
         DirectionalCentroidDistanceAlgorithm(),
+        VarianceMinimizationAlgorithm(),
+        DirectionalVarianceMinimizationAlgorithm(),
         ResourceTypeAlgorithm("cpu"),
         ResourceTypeAlgorithm("memory")
     ]
