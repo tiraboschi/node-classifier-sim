@@ -510,6 +510,130 @@ class DirectionalVarianceMinimizationAlgorithm(ClassificationAlgorithm):
              self.params['memory_pressure_weight'])
 
 
+class WeightedMeanSquarePositiveDeviationAlgorithm(ClassificationAlgorithm):
+    """Weighted Mean Square of Positive Deviation algorithm.
+
+    Similar to WeightedRMSPositiveDeviationAlgorithm but without the square root,
+    producing larger scores that may help with convergence.
+    For each dimension, calculates cluster average and computes positive deviations
+    (values above average). Then calculates weighted mean square of these deviations.
+    Weights: 0.15 for usage metrics, 0.35 for pressure metrics.
+    """
+
+    def __init__(self):
+        super().__init__("Weighted Mean Square Positive Deviation",
+                        cpu_usage_weight=0.15,
+                        cpu_pressure_weight=0.35,
+                        memory_usage_weight=0.15,
+                        memory_pressure_weight=0.35)
+
+    def classify_nodes(self, nodes: List[Node]) -> List[Tuple[Node, float]]:
+        """Classify nodes using weighted mean square of positive deviations."""
+        if not nodes:
+            return []
+
+        # Calculate cluster averages for each dimension
+        cpu_usage_avg = sum(node.cpu_usage for node in nodes) / len(nodes)
+        cpu_pressure_avg = sum(node.cpu_pressure for node in nodes) / len(nodes)
+        memory_usage_avg = sum(node.memory_usage for node in nodes) / len(nodes)
+        memory_pressure_avg = sum(node.memory_pressure for node in nodes) / len(nodes)
+
+        # Calculate weighted mean square of positive deviations for each node
+        scored_nodes = []
+        for node in nodes:
+            # Calculate positive deviations (0 if below average, actual deviation if above)
+            cpu_usage_dev = max(0, node.cpu_usage - cpu_usage_avg)
+            cpu_pressure_dev = max(0, node.cpu_pressure - cpu_pressure_avg)
+            memory_usage_dev = max(0, node.memory_usage - memory_usage_avg)
+            memory_pressure_dev = max(0, node.memory_pressure - memory_pressure_avg)
+
+            # Apply weights and calculate weighted sum of squares
+            weighted_sum_squares = (
+                self.params['cpu_usage_weight'] * (cpu_usage_dev ** 2) +
+                self.params['cpu_pressure_weight'] * (cpu_pressure_dev ** 2) +
+                self.params['memory_usage_weight'] * (memory_usage_dev ** 2) +
+                self.params['memory_pressure_weight'] * (memory_pressure_dev ** 2)
+            )
+
+            # Calculate weighted mean square (without square root)
+            total_weight = (self.params['cpu_usage_weight'] +
+                          self.params['cpu_pressure_weight'] +
+                          self.params['memory_usage_weight'] +
+                          self.params['memory_pressure_weight'])
+
+            score = weighted_sum_squares / total_weight
+            scored_nodes.append((node, score))
+
+        # Sort by score (ascending - least loaded first)
+        return sorted(scored_nodes, key=lambda x: x[1])
+
+    def calculate_score(self, node: Node) -> float:
+        """Calculate score for a single node (requires context of other nodes)."""
+        # This method is called when we don't have cluster context
+        # Fall back to simple weighted average of all metrics
+        return (node.cpu_usage * self.params['cpu_usage_weight'] +
+                node.cpu_pressure * self.params['cpu_pressure_weight'] +
+                node.memory_usage * self.params['memory_usage_weight'] +
+                node.memory_pressure * self.params['memory_pressure_weight'])
+
+class LinearWeightedPositiveDeviationAlgorithm(ClassificationAlgorithm):
+    """Linear Weighted Positive Deviation algorithm.
+
+    Uses linear (not squared) positive deviations from cluster average.
+    For each dimension, calculates cluster average and computes positive deviations
+    (values above average). Then calculates weighted sum of these linear deviations.
+    Weights: 0.15 for usage metrics, 0.35 for pressure metrics.
+    """
+
+    def __init__(self):
+        super().__init__("Linear Weighted Positive Deviation",
+                        cpu_usage_weight=0.15,
+                        cpu_pressure_weight=0.35,
+                        memory_usage_weight=0.15,
+                        memory_pressure_weight=0.35)
+
+    def classify_nodes(self, nodes: List[Node]) -> List[Tuple[Node, float]]:
+        """Classify nodes using weighted sum of linear positive deviations."""
+        if not nodes:
+            return []
+
+        # Calculate cluster averages for each dimension
+        cpu_usage_avg = sum(node.cpu_usage for node in nodes) / len(nodes)
+        cpu_pressure_avg = sum(node.cpu_pressure for node in nodes) / len(nodes)
+        memory_usage_avg = sum(node.memory_usage for node in nodes) / len(nodes)
+        memory_pressure_avg = sum(node.memory_pressure for node in nodes) / len(nodes)
+
+        # Calculate weighted sum of positive deviations for each node
+        scored_nodes = []
+        for node in nodes:
+            # Calculate positive deviations (0 if below average, actual deviation if above)
+            cpu_usage_dev = max(0, node.cpu_usage - cpu_usage_avg)
+            cpu_pressure_dev = max(0, node.cpu_pressure - cpu_pressure_avg)
+            memory_usage_dev = max(0, node.memory_usage - memory_usage_avg)
+            memory_pressure_dev = max(0, node.memory_pressure - memory_pressure_avg)
+
+            # Apply weights and calculate weighted sum
+            weighted_sum = (
+                self.params['cpu_usage_weight'] * cpu_usage_dev +
+                self.params['cpu_pressure_weight'] * cpu_pressure_dev +
+                self.params['memory_usage_weight'] * memory_usage_dev +
+                self.params['memory_pressure_weight'] * memory_pressure_dev
+            )
+
+            scored_nodes.append((node, weighted_sum))
+
+        # Sort by score (ascending - least loaded first)
+        return sorted(scored_nodes, key=lambda x: x[1])
+
+    def calculate_score(self, node: Node) -> float:
+        """Calculate score for a single node (requires context of other nodes)."""
+        # This method is called when we don't have cluster context
+        # Fall back to simple weighted average of all metrics
+        return (node.cpu_usage * self.params['cpu_usage_weight'] +
+                node.cpu_pressure * self.params['cpu_pressure_weight'] +
+                node.memory_usage * self.params['memory_usage_weight'] +
+                node.memory_pressure * self.params['memory_pressure_weight'])
+
 class DirectionalCentroidDistanceAlgorithm(ClassificationAlgorithm):
     """Directional Centroid Distance - measures positive deviation from cluster center.
 
@@ -588,6 +712,8 @@ def get_default_algorithms() -> List[ClassificationAlgorithm]:
         EuclideanDistanceAlgorithm(),
         PressureFocusedAlgorithm(),
         WeightedRMSPositiveDeviationAlgorithm(),
+        WeightedMeanSquarePositiveDeviationAlgorithm(),
+        LinearWeightedPositiveDeviationAlgorithm(),
         ParetoFrontAlgorithm(),
         CentroidDistanceAlgorithm(),
         DirectionalCentroidDistanceAlgorithm(),

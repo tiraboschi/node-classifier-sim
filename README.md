@@ -6,7 +6,7 @@ A comprehensive simulator for load-aware rebalancing of KubeVirt VMs running on 
 
 ### Core Functionality
 - **Node representation**: Each K8s node has name, CPU usage percentage (0-1), CPU PSI pressure (0-1), memory usage percentage (0-1), memory PSI pressure (0-1)
-- **Classification algorithms**: Extensible framework with eight pre-implemented algorithms
+- **Classification algorithms**: Extensible framework with fourteen pre-implemented algorithms
 - **Realistic data generation**: Uses 70% utilization threshold rule for authentic pressure modeling
 - **JSON scenarios**: Load/save scenarios with multiple test cases
 
@@ -86,13 +86,15 @@ python gui.py
 3. **Euclidean Distance**: Geometric distance from origin (0,0,0,0) - great for overall load
 4. **Pressure Focused**: Prioritizes PSI pressure metrics (identifies stressed nodes)
 5. **Weighted RMS Positive Deviation**: Cluster-relative algorithm focusing on nodes above average with weighted RMS calculation (weights: 0.15 for usage, 0.35 for pressure metrics)
-6. **Pareto Front (NSGA-II)**: Multi-objective optimization using non-dominated sorting and crowding distance to find optimal trade-offs across all metrics
-7. **Centroid Distance**: Measures distance from cluster center in 4D space - identifies outliers (Note: treats under-utilized and over-utilized nodes equally if at same distance from center)
-8. **Directional Centroid Distance**: Measures only positive deviations from cluster center - ensures overutilized nodes rank higher than underutilized nodes (better for load-aware rebalancing)
-9. **Variance Minimization**: Cluster balancing algorithm that penalizes any deviation from cluster mean (PSI pressure metrics weighted 2x as "alarm bells": CPU/Memory usage weight 1.0, CPU/Memory pressure weight 2.0) - Note: treats under-utilized and over-utilized nodes equally if at same distance from mean
-10. **Directional Variance Minimization**: Cluster balancing algorithm that only penalizes positive deviations from cluster mean - ensures overutilized nodes rank higher than underutilized nodes (PSI pressure weighted 2x, usage 1x)
-11. **Resource Type (CPU)**: CPU-focused algorithm considering usage and pressure
-12. **Resource Type (Memory)**: Memory-focused algorithm considering usage and pressure
+6. **Weighted Mean Square Positive Deviation**: Similar to Weighted RMS but without square root - produces larger scores for better convergence behavior (weights: 0.15 for usage, 0.35 for pressure metrics)
+7. **Linear Weighted Positive Deviation**: Uses linear (not squared) positive deviations from cluster average - produces the largest scores among deviation-based algorithms (weights: 0.15 for usage, 0.35 for pressure metrics)
+8. **Pareto Front (NSGA-II)**: Multi-objective optimization using non-dominated sorting and crowding distance to find optimal trade-offs across all metrics
+9. **Centroid Distance**: Measures distance from cluster center in 4D space - identifies outliers (Note: treats under-utilized and over-utilized nodes equally if at same distance from center)
+10. **Directional Centroid Distance**: Measures only positive deviations from cluster center - ensures overutilized nodes rank higher than underutilized nodes (better for load-aware rebalancing)
+11. **Variance Minimization**: Cluster balancing algorithm that penalizes any deviation from cluster mean (PSI pressure metrics weighted 2x as "alarm bells": CPU/Memory usage weight 1.0, CPU/Memory pressure weight 2.0) - Note: treats under-utilized and over-utilized nodes equally if at same distance from mean
+12. **Directional Variance Minimization**: Cluster balancing algorithm that only penalizes positive deviations from cluster mean - ensures overutilized nodes rank higher than underutilized nodes (PSI pressure weighted 2x, usage 1x)
+13. **Resource Type (CPU)**: CPU-focused algorithm considering usage and pressure
+14. **Resource Type (Memory)**: Memory-focused algorithm considering usage and pressure
 
 ## Three-Bucket Classification
 
