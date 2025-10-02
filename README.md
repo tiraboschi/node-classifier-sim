@@ -93,8 +93,9 @@ python gui.py
 10. **Directional Centroid Distance**: Measures only positive deviations from cluster center - ensures overutilized nodes rank higher than underutilized nodes (better for load-aware rebalancing)
 11. **Variance Minimization**: Cluster balancing algorithm that penalizes any deviation from cluster mean (PSI pressure metrics weighted 2x as "alarm bells": CPU/Memory usage weight 1.0, CPU/Memory pressure weight 2.0) - Note: treats under-utilized and over-utilized nodes equally if at same distance from mean
 12. **Directional Variance Minimization**: Cluster balancing algorithm that only penalizes positive deviations from cluster mean - ensures overutilized nodes rank higher than underutilized nodes (PSI pressure weighted 2x, usage 1x)
-13. **Resource Type (CPU)**: CPU-focused algorithm considering usage and pressure
-14. **Resource Type (Memory)**: Memory-focused algorithm considering usage and pressure
+13. **Critical Dimension Focus**: Adaptive algorithm that identifies and focuses on the most problematic resource dimension - computes average positive deviations per dimension and sorts nodes by their deviation on the critical dimension (convergent when iterated)
+14. **Resource Type (CPU)**: CPU-focused algorithm considering usage and pressure
+15. **Resource Type (Memory)**: Memory-focused algorithm considering usage and pressure
 
 ## Three-Bucket Classification
 

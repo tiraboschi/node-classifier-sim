@@ -634,6 +634,70 @@ class LinearWeightedPositiveDeviationAlgorithm(ClassificationAlgorithm):
                 node.memory_usage * self.params['memory_usage_weight'] +
                 node.memory_pressure * self.params['memory_pressure_weight'])
 
+class CriticalDimensionFocusAlgorithm(ClassificationAlgorithm):
+    """Critical Dimension Focus - chooses the dimension with highest average positive deviation.
+
+    For each dimension, calculates positive deviations (values above cluster average).
+    Then computes the average of positive deviations per dimension.
+    Selects the dimension with the highest average positive deviation as the critical dimension.
+    Sorts nodes based on their positive deviation on that critical dimension.
+
+    This algorithm focuses on the most problematic dimension in the cluster,
+    and should converge when iterated as it addresses the most critical resource bottleneck.
+    """
+
+    def __init__(self):
+        super().__init__("Critical Dimension Focus")
+
+    def classify_nodes(self, nodes: List[Node]) -> List[Tuple[Node, float]]:
+        """Classify nodes based on positive deviation in the critical dimension."""
+        if not nodes:
+            return []
+
+        n = len(nodes)
+
+        # Calculate cluster averages for each dimension
+        cpu_usage_avg = sum(node.cpu_usage for node in nodes) / n
+        cpu_pressure_avg = sum(node.cpu_pressure for node in nodes) / n
+        memory_usage_avg = sum(node.memory_usage for node in nodes) / n
+        memory_pressure_avg = sum(node.memory_pressure for node in nodes) / n
+
+        # Calculate positive deviations for each dimension on each node
+        positive_deviations = {
+            'cpu_usage': [max(0, node.cpu_usage - cpu_usage_avg) for node in nodes],
+            'cpu_pressure': [max(0, node.cpu_pressure - cpu_pressure_avg) for node in nodes],
+            'memory_usage': [max(0, node.memory_usage - memory_usage_avg) for node in nodes],
+            'memory_pressure': [max(0, node.memory_pressure - memory_pressure_avg) for node in nodes]
+        }
+
+        # Compute average of positive deviations for each dimension
+        dimension_avg_deviations = {
+            dim: sum(devs) / n for dim, devs in positive_deviations.items()
+        }
+
+        # Choose the dimension with highest average positive deviation
+        critical_dimension = max(dimension_avg_deviations, key=dimension_avg_deviations.get)
+
+        # Sort nodes by their positive deviation on the critical dimension
+        scored_nodes = []
+        for i, node in enumerate(nodes):
+            score = positive_deviations[critical_dimension][i]
+            scored_nodes.append((node, score))
+
+        # Normalize scores to [0, 1] range
+        if scored_nodes:
+            max_score = max(score for _, score in scored_nodes)
+            if max_score > 0:
+                scored_nodes = [(node, score / max_score) for node, score in scored_nodes]
+
+        # Sort by score (ascending - nodes with lower positive deviation are less loaded)
+        return sorted(scored_nodes, key=lambda x: x[1])
+
+    def calculate_score(self, node: Node) -> float:
+        """Calculate score for a single node (fallback when no cluster context)."""
+        # When called individually, use max metric as fallback
+        return max(node.cpu_usage, node.cpu_pressure, node.memory_usage, node.memory_pressure)
+
 class DirectionalCentroidDistanceAlgorithm(ClassificationAlgorithm):
     """Directional Centroid Distance - measures positive deviation from cluster center.
 
@@ -719,6 +783,7 @@ def get_default_algorithms() -> List[ClassificationAlgorithm]:
         DirectionalCentroidDistanceAlgorithm(),
         VarianceMinimizationAlgorithm(),
         DirectionalVarianceMinimizationAlgorithm(),
+        CriticalDimensionFocusAlgorithm(),
         ResourceTypeAlgorithm("cpu"),
         ResourceTypeAlgorithm("memory")
     ]
