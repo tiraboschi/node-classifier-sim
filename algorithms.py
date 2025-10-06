@@ -768,6 +768,75 @@ class DirectionalCentroidDistanceAlgorithm(ClassificationAlgorithm):
             memory_pressure_dev ** 2
         ) / 2.0  # Divide by 2 to normalize to [0, 1] range
 
+class IdealPointPositiveDistanceAlgorithm(ClassificationAlgorithm):
+    """Ideal Point Positive Distance - measures positive deviation from equal-share ideal point.
+
+    Calculates the ideal point where load would be equally distributed across all nodes
+    (cluster average per dimension). Then measures each node's distance from this ideal,
+    considering only positive contributions (dimensions where node exceeds the ideal).
+
+    This algorithm identifies nodes that are above their fair share of the load.
+    Nodes below the ideal on all dimensions get score of 0 (ready to accept more load).
+    """
+
+    def __init__(self):
+        super().__init__("Ideal Point Positive Distance")
+
+    def classify_nodes(self, nodes: List[Node]) -> List[Tuple[Node, float]]:
+        """Classify nodes based on positive deviation from ideal equal-share point."""
+        if not nodes:
+            return []
+
+        # Calculate ideal point (equal load distribution = cluster average)
+        ideal_cpu_usage = sum(node.cpu_usage for node in nodes) / len(nodes)
+        ideal_cpu_pressure = sum(node.cpu_pressure for node in nodes) / len(nodes)
+        ideal_memory_usage = sum(node.memory_usage for node in nodes) / len(nodes)
+        ideal_memory_pressure = sum(node.memory_pressure for node in nodes) / len(nodes)
+
+        # Calculate positive distance from ideal point for each node
+        scored_nodes = []
+        for node in nodes:
+            # Only count dimensions where node exceeds the ideal
+            # Nodes below ideal on a dimension contribute 0 for that dimension
+            cpu_usage_positive_dev = max(0, node.cpu_usage - ideal_cpu_usage)
+            cpu_pressure_positive_dev = max(0, node.cpu_pressure - ideal_cpu_pressure)
+            memory_usage_positive_dev = max(0, node.memory_usage - ideal_memory_usage)
+            memory_pressure_positive_dev = max(0, node.memory_pressure - ideal_memory_pressure)
+
+            # Euclidean distance using only positive deviations
+            distance = math.sqrt(
+                cpu_usage_positive_dev ** 2 +
+                cpu_pressure_positive_dev ** 2 +
+                memory_usage_positive_dev ** 2 +
+                memory_pressure_positive_dev ** 2
+            )
+            scored_nodes.append((node, distance))
+
+        # Normalize scores to [0, 1] range
+        if scored_nodes:
+            max_distance = max(score for _, score in scored_nodes)
+            if max_distance > 0:
+                scored_nodes = [(node, score / max_distance) for node, score in scored_nodes]
+
+        # Sort by distance (ascending - nodes at/below ideal get lower scores)
+        return sorted(scored_nodes, key=lambda x: x[1])
+
+    def calculate_score(self, node: Node) -> float:
+        """Calculate score for a single node (fallback when no cluster context)."""
+        # When called individually, use positive deviation from ideal balanced state (0.5 on all dimensions)
+        ideal_value = 0.5
+        cpu_usage_dev = max(0, node.cpu_usage - ideal_value)
+        cpu_pressure_dev = max(0, node.cpu_pressure - ideal_value)
+        memory_usage_dev = max(0, node.memory_usage - ideal_value)
+        memory_pressure_dev = max(0, node.memory_pressure - ideal_value)
+
+        return math.sqrt(
+            cpu_usage_dev ** 2 +
+            cpu_pressure_dev ** 2 +
+            memory_usage_dev ** 2 +
+            memory_pressure_dev ** 2
+        ) / 2.0  # Divide by 2 to normalize to [0, 1] range
+
 def get_default_algorithms() -> List[ClassificationAlgorithm]:
     """Get a list of default classification algorithms."""
     return [
@@ -784,6 +853,7 @@ def get_default_algorithms() -> List[ClassificationAlgorithm]:
         VarianceMinimizationAlgorithm(),
         DirectionalVarianceMinimizationAlgorithm(),
         CriticalDimensionFocusAlgorithm(),
+        IdealPointPositiveDistanceAlgorithm(),
         ResourceTypeAlgorithm("cpu"),
         ResourceTypeAlgorithm("memory")
     ]
