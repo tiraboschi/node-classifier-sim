@@ -51,6 +51,12 @@ python cli.py --file sample_scenarios.json --classify
 python cli.py --file sample_scenarios.json --classify --threshold-mode high
 python cli.py --file sample_scenarios.json --classify --threshold-mode asym-medium
 
+# Run benchmark to compare all algorithms
+python cli.py --file sample_scenarios.json --benchmark
+
+# Run benchmark with custom settings
+python cli.py --file sample_scenarios.json --benchmark --threshold-mode asym-medium --max-iterations 150
+
 # List available algorithms
 python cli.py --list-algorithms
 ```
@@ -170,6 +176,80 @@ The history panel shows for each step:
 - **Pressure modeling**: Exponential pressure growth at high utilization
 - **History tracking**: Full audit trail of all VM movements
 - **Configurable limits**: Adjustable per-node and per-cluster VM movement limits
+
+## Algorithm Benchmark
+
+The benchmark feature allows you to compare all algorithms on the same scenario using a ranking-based scoring system.
+
+### How It Works
+
+The benchmark runs each algorithm through a simulation until convergence (no overutilized nodes) or max iterations (default: 100). It measures:
+
+1. **Steps to Convergence**: Number of simulation steps to eliminate all overutilized nodes
+2. **CPU Standard Deviation**: How evenly CPU load is distributed across nodes (lower is better)
+3. **Memory Standard Deviation**: How evenly memory load is distributed across nodes (lower is better)
+
+### Scoring System
+
+Each algorithm is ranked on each metric:
+- 1st place = 1 point, 2nd place = 2 points, etc.
+- **Total Score** = Steps Rank + CPU σ Rank + Memory σ Rank
+- **Lower total score = better overall performance**
+
+**Three-tier penalty system:**
+
+1. **✓ Valid algorithms** (1+ steps, converged): Get normal ranks (1, 2, 3...)
+2. **⊘ Disqualified algorithms** (0 steps): Heavily penalized - they didn't do any work because the scenario was already balanced
+   - Receive ranks starting at (valid_count + 1) with 10× gaps between disqualified algorithms
+   - Applied to all three metrics (steps, CPU σ, memory σ)
+3. **✗ Non-converging algorithms** (failed to eliminate overutilized nodes): Most heavily penalized
+   - Receive the worst ranks with additional 10× gaps after disqualified algorithms
+   - Applied to all three metrics (steps, CPU σ, memory σ)
+
+**Example with 10 valid, 2 disqualified, and 3 non-converged algorithms:**
+- Valid algorithms: ranks 1-10
+- Disqualified algorithms: ranks 11, 21
+- Non-converged algorithms: ranks 31, 41, 51
+
+This ensures only algorithms that actually solve the problem can win.
+
+### Example Output
+
+```
+Rank  Algorithm                           Steps    Step   CPU σ          CPU   MEM σ          MEM   Total
+                                                   Rank                  Rank                 Rank  Score
+----------------------------------------------------------------------------------------------------
+1     Ideal Point Positive Distance       12       1      0.02145678    3     0.01823456    2     6
+2     Directional Centroid Distance       15       2      0.02034567    1     0.01934567    4     7
+3     Critical Dimension Focus            14       3      0.02156789    4     0.01745678    1     8
+...
+14    Max Metric                          0 (DQ)   11     0.03245678    11    0.02945678    11    33
+15    Pareto Front (NSGA-II)              >100     21     0.03891698    21    0.03629416    21    63
+...
+
+WINNERS:
+🏆 Overall Best: Ideal Point Positive Distance (Total Score: 6)
+⚡ Fastest Convergence: Ideal Point Positive Distance (12 steps)
+📊 Best CPU Balance: Directional Centroid Distance (σ=0.02034567)
+💾 Best Memory Balance: Critical Dimension Focus (σ=0.01745678)
+
+✓ Valid: 13/16 algorithms
+⊘ Disqualified (0 steps): 1/16 algorithms
+✗ Failed to converge: 2/16 algorithms
+```
+
+### Usage
+
+```bash
+# Run benchmark on all scenarios
+python cli.py --file sample_scenarios.json --benchmark
+
+# Use custom threshold mode
+python cli.py --file sample_scenarios.json --benchmark --threshold-mode asym-medium
+
+# Increase max iterations
+python cli.py --file sample_scenarios.json --benchmark --max-iterations 150
+```
 
 ## Sample Scenarios
 
