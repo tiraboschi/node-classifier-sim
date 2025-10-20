@@ -6,7 +6,7 @@ A comprehensive simulator for load-aware rebalancing of KubeVirt VMs running on 
 
 ### Core Functionality
 - **Node representation**: Each K8s node has name, CPU usage percentage (0-1), CPU PSI pressure (0-1), memory usage percentage (0-1), memory PSI pressure (0-1)
-- **Classification algorithms**: Extensible framework with sixteen pre-implemented algorithms
+- **Classification algorithms**: Extensible framework with nineteen pre-implemented algorithms
 - **Realistic data generation**: Uses 70% utilization threshold rule for authentic pressure modeling
 - **JSON scenarios**: Load/save scenarios with multiple test cases
 
@@ -100,9 +100,12 @@ python gui.py
 11. **Variance Minimization**: Cluster balancing algorithm that penalizes any deviation from cluster mean (PSI pressure metrics weighted 2x as "alarm bells": CPU/Memory usage weight 1.0, CPU/Memory pressure weight 2.0) - Note: treats under-utilized and over-utilized nodes equally if at same distance from mean
 12. **Directional Variance Minimization**: Cluster balancing algorithm that only penalizes positive deviations from cluster mean - ensures overutilized nodes rank higher than underutilized nodes (PSI pressure weighted 2x, usage 1x)
 13. **Critical Dimension Focus**: Adaptive algorithm that identifies and focuses on the most problematic resource dimension - computes average positive deviations per dimension and sorts nodes by their deviation on the critical dimension (convergent when iterated)
-14. **Ideal Point Positive Distance**: Calculates the ideal point where load is equally distributed (cluster average on each dimension), then measures each node's distance considering only positive contributions (dimensions where node exceeds the ideal) - identifies nodes above their fair share of the load
-15. **Resource Type (CPU)**: CPU-focused algorithm considering usage and pressure
-16. **Resource Type (Memory)**: Memory-focused algorithm considering usage and pressure
+14. **Ideal Point Positive Distance**: Calculates the ideal point where load is equally distributed (cluster average on each dimension), then measures each node's Euclidean distance considering only positive contributions (dimensions where node exceeds the ideal) - uses raw distance (clamped to [0,1]) for stability, avoiding max normalization that causes convergence issues in large clusters
+15. **Linear Amplified Ideal Point Positive Distance (k=1.0)**: Same as Ideal Point Positive Distance with 1x linear amplification (equivalent to base algorithm) - useful for comparison
+16. **Linear Amplified Ideal Point Positive Distance (k=3.0)**: Linear amplified version (3x) with capped scores (min(1.0, k * distance)) providing better separation in high-utilization clusters - small deviations above average get meaningful scores (recommended for clusters with high average utilization). Produces a "hockey stick" shape rather than a smooth sigmoid curve.
+17. **Linear Amplified Ideal Point Positive Distance (k=5.0)**: Aggressively linear amplified version (5x) with capped scores - very sensitive to deviations, hits score ceiling quickly (useful for extremely loaded clusters)
+18. **Resource Type (CPU)**: CPU-focused algorithm considering usage and pressure
+19. **Resource Type (Memory)**: Memory-focused algorithm considering usage and pressure
 
 ## Three-Bucket Classification
 

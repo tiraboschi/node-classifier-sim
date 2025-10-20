@@ -768,6 +768,82 @@ class DirectionalCentroidDistanceAlgorithm(ClassificationAlgorithm):
             memory_pressure_dev ** 2
         ) / 2.0  # Divide by 2 to normalize to [0, 1] range
 
+class LinearAmplifiedIdealPointPositiveDistanceAlgorithm(ClassificationAlgorithm):
+    """Linear Amplified Ideal Point Positive Distance - amplifies distance for better sensitivity.
+
+    Same as IdealPointPositiveDistanceAlgorithm but applies linear amplification with a cap:
+        score = min(1.0, k * distance)
+
+    Where k is a sensitivity multiplier (default=3):
+    - k=1: No amplification, same as Ideal Point Positive Distance
+    - k=3: 3x amplification (recommended) - better separation in high-utilization clusters
+    - k=5: 5x amplification (aggressive) - very sensitive to deviations
+
+    This provides better differentiation when cluster average is high by making
+    small deviations more significant. The linear amplification produces a
+    "hockey stick" shape (linear growth until cap) rather than a smooth sigmoid curve.
+    """
+
+    def __init__(self, sensitivity=3.0):
+        super().__init__(f"Linear Amplified Ideal Point Positive Distance (k={sensitivity})", sensitivity=sensitivity)
+
+    def classify_nodes(self, nodes: List[Node]) -> List[Tuple[Node, float]]:
+        """Classify nodes based on amplified positive deviation from ideal point."""
+        if not nodes:
+            return []
+
+        # Calculate ideal point (equal load distribution = cluster average)
+        ideal_cpu_usage = sum(node.cpu_usage for node in nodes) / len(nodes)
+        ideal_cpu_pressure = sum(node.cpu_pressure for node in nodes) / len(nodes)
+        ideal_memory_usage = sum(node.memory_usage for node in nodes) / len(nodes)
+        ideal_memory_pressure = sum(node.memory_pressure for node in nodes) / len(nodes)
+
+        # Calculate positive distance from ideal point for each node
+        scored_nodes = []
+        for node in nodes:
+            # Only count dimensions where node exceeds the ideal
+            cpu_usage_positive_dev = max(0, node.cpu_usage - ideal_cpu_usage)
+            cpu_pressure_positive_dev = max(0, node.cpu_pressure - ideal_cpu_pressure)
+            memory_usage_positive_dev = max(0, node.memory_usage - ideal_memory_usage)
+            memory_pressure_positive_dev = max(0, node.memory_pressure - ideal_memory_pressure)
+
+            # Euclidean distance using only positive deviations
+            distance = math.sqrt(
+                cpu_usage_positive_dev ** 2 +
+                cpu_pressure_positive_dev ** 2 +
+                memory_usage_positive_dev ** 2 +
+                memory_pressure_positive_dev ** 2
+            )
+
+            # Amplify distance by sensitivity factor and clamp to [0, 1]
+            k = self.params['sensitivity']
+            amplified_score = min(1.0, k * distance)
+
+            scored_nodes.append((node, amplified_score))
+
+        # Sort by score (ascending - nodes at/below ideal get lower scores)
+        return sorted(scored_nodes, key=lambda x: x[1])
+
+    def calculate_score(self, node: Node) -> float:
+        """Calculate score for a single node (fallback when no cluster context)."""
+        # When called individually, use positive deviation from ideal balanced state (0.5 on all dimensions)
+        ideal_value = 0.5
+        cpu_usage_dev = max(0, node.cpu_usage - ideal_value)
+        cpu_pressure_dev = max(0, node.cpu_pressure - ideal_value)
+        memory_usage_dev = max(0, node.memory_usage - ideal_value)
+        memory_pressure_dev = max(0, node.memory_pressure - ideal_value)
+
+        distance = math.sqrt(
+            cpu_usage_dev ** 2 +
+            cpu_pressure_dev ** 2 +
+            memory_usage_dev ** 2 +
+            memory_pressure_dev ** 2
+        )
+
+        # Amplify distance by sensitivity factor
+        k = self.params['sensitivity']
+        return min(1.0, k * distance)
+
 class IdealPointPositiveDistanceAlgorithm(ClassificationAlgorithm):
     """Ideal Point Positive Distance - measures positive deviation from equal-share ideal point.
 
@@ -810,13 +886,12 @@ class IdealPointPositiveDistanceAlgorithm(ClassificationAlgorithm):
                 memory_usage_positive_dev ** 2 +
                 memory_pressure_positive_dev ** 2
             )
-            scored_nodes.append((node, distance))
 
-        # Normalize scores to [0, 1] range
-        if scored_nodes:
-            max_distance = max(score for _, score in scored_nodes)
-            if max_distance > 0:
-                scored_nodes = [(node, score / max_distance) for node, score in scored_nodes]
+            # Don't normalize by max - use raw distance for stability
+            # Distances are already in [0, ~1.4] range (max Euclidean in unit hypercube)
+            # Clamp to [0, 1] to ensure valid scores
+            score = min(1.0, distance)
+            scored_nodes.append((node, score))
 
         # Sort by distance (ascending - nodes at/below ideal get lower scores)
         return sorted(scored_nodes, key=lambda x: x[1])
@@ -854,6 +929,9 @@ def get_default_algorithms() -> List[ClassificationAlgorithm]:
         DirectionalVarianceMinimizationAlgorithm(),
         CriticalDimensionFocusAlgorithm(),
         IdealPointPositiveDistanceAlgorithm(),
+        LinearAmplifiedIdealPointPositiveDistanceAlgorithm(sensitivity=1.0),
+        LinearAmplifiedIdealPointPositiveDistanceAlgorithm(sensitivity=3.0),
+        LinearAmplifiedIdealPointPositiveDistanceAlgorithm(sensitivity=5.0),
         ResourceTypeAlgorithm("cpu"),
         ResourceTypeAlgorithm("memory")
     ]
