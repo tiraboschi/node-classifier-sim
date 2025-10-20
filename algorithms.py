@@ -768,10 +768,10 @@ class DirectionalCentroidDistanceAlgorithm(ClassificationAlgorithm):
             memory_pressure_dev ** 2
         ) / 2.0  # Divide by 2 to normalize to [0, 1] range
 
-class SigmoidIdealPointPositiveDistanceAlgorithm(ClassificationAlgorithm):
-    """Sigmoid Ideal Point Positive Distance - amplifies distance for better sensitivity.
+class LinearAmplifiedIdealPointPositiveDistanceAlgorithm(ClassificationAlgorithm):
+    """Linear Amplified Ideal Point Positive Distance - amplifies distance for better sensitivity.
 
-    Same as IdealPointPositiveDistanceAlgorithm but amplifies the raw distance:
+    Same as IdealPointPositiveDistanceAlgorithm but applies linear amplification with a cap:
         score = min(1.0, k * distance)
 
     Where k is a sensitivity multiplier (default=3):
@@ -780,11 +780,12 @@ class SigmoidIdealPointPositiveDistanceAlgorithm(ClassificationAlgorithm):
     - k=5: 5x amplification (aggressive) - very sensitive to deviations
 
     This provides better differentiation when cluster average is high by making
-    small deviations more significant.
+    small deviations more significant. The linear amplification produces a
+    "hockey stick" shape (linear growth until cap) rather than a smooth sigmoid curve.
     """
 
     def __init__(self, sensitivity=3.0):
-        super().__init__(f"Sigmoid Ideal Point Positive Distance (k={sensitivity})", sensitivity=sensitivity)
+        super().__init__(f"Linear Amplified Ideal Point Positive Distance (k={sensitivity})", sensitivity=sensitivity)
 
     def classify_nodes(self, nodes: List[Node]) -> List[Tuple[Node, float]]:
         """Classify nodes based on amplified positive deviation from ideal point."""
@@ -928,9 +929,9 @@ def get_default_algorithms() -> List[ClassificationAlgorithm]:
         DirectionalVarianceMinimizationAlgorithm(),
         CriticalDimensionFocusAlgorithm(),
         IdealPointPositiveDistanceAlgorithm(),
-        SigmoidIdealPointPositiveDistanceAlgorithm(sensitivity=1.0),
-        SigmoidIdealPointPositiveDistanceAlgorithm(sensitivity=3.0),
-        SigmoidIdealPointPositiveDistanceAlgorithm(sensitivity=5.0),
+        LinearAmplifiedIdealPointPositiveDistanceAlgorithm(sensitivity=1.0),
+        LinearAmplifiedIdealPointPositiveDistanceAlgorithm(sensitivity=3.0),
+        LinearAmplifiedIdealPointPositiveDistanceAlgorithm(sensitivity=5.0),
         ResourceTypeAlgorithm("cpu"),
         ResourceTypeAlgorithm("memory")
     ]

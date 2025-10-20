@@ -101,9 +101,9 @@ python gui.py
 12. **Directional Variance Minimization**: Cluster balancing algorithm that only penalizes positive deviations from cluster mean - ensures overutilized nodes rank higher than underutilized nodes (PSI pressure weighted 2x, usage 1x)
 13. **Critical Dimension Focus**: Adaptive algorithm that identifies and focuses on the most problematic resource dimension - computes average positive deviations per dimension and sorts nodes by their deviation on the critical dimension (convergent when iterated)
 14. **Ideal Point Positive Distance**: Calculates the ideal point where load is equally distributed (cluster average on each dimension), then measures each node's Euclidean distance considering only positive contributions (dimensions where node exceeds the ideal) - uses raw distance (clamped to [0,1]) for stability, avoiding max normalization that causes convergence issues in large clusters
-15. **Sigmoid Ideal Point Positive Distance (k=1.0)**: Same as Ideal Point Positive Distance with 1x amplification (equivalent to base algorithm) - useful for comparison
-16. **Sigmoid Ideal Point Positive Distance (k=3.0)**: Amplified version (3x) providing better separation in high-utilization clusters - small deviations above average get meaningful scores (recommended for clusters with high average utilization)
-17. **Sigmoid Ideal Point Positive Distance (k=5.0)**: Aggressively amplified version (5x) - very sensitive to deviations, hits score ceiling quickly (useful for extremely loaded clusters)
+15. **Linear Amplified Ideal Point Positive Distance (k=1.0)**: Same as Ideal Point Positive Distance with 1x linear amplification (equivalent to base algorithm) - useful for comparison
+16. **Linear Amplified Ideal Point Positive Distance (k=3.0)**: Linear amplified version (3x) with capped scores (min(1.0, k * distance)) providing better separation in high-utilization clusters - small deviations above average get meaningful scores (recommended for clusters with high average utilization). Produces a "hockey stick" shape rather than a smooth sigmoid curve.
+17. **Linear Amplified Ideal Point Positive Distance (k=5.0)**: Aggressively linear amplified version (5x) with capped scores - very sensitive to deviations, hits score ceiling quickly (useful for extremely loaded clusters)
 18. **Resource Type (CPU)**: CPU-focused algorithm considering usage and pressure
 19. **Resource Type (Memory)**: Memory-focused algorithm considering usage and pressure
 
