@@ -1,0 +1,22 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: node-classifier-sim
+nodes:
+  - role: control-plane
+    # Use Kubernetes 1.34.0
+    image: kindest/node:v1.34.0
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      # Prometheus
+      - containerPort: 30090
+        hostPort: 9090
+        protocol: TCP
+      # Metrics exporter
+      - containerPort: 30800
+        hostPort: 8000
+        protocol: TCP

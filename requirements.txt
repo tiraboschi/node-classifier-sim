@@ -1,2 +1,5 @@
 matplotlib>=3.5.0
 numpy>=1.21.0
+flask>=2.3.0
+prometheus-client>=0.17.0
+requests>=2.31.0
