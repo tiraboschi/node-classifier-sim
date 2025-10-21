@@ -1,0 +1,145 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metrics-exporter-scenario
+  namespace: monitoring
+data:
+  sample_scenarios.json: |
+    {
+      "light_load": [
+        {
+          "name": "kwok-node-1",
+          "cpu_usage": 0.15,
+          "cpu_pressure": 0.01,
+          "memory_usage": 0.20,
+          "memory_pressure": 0.02,
+          "vms": []
+        },
+        {
+          "name": "kwok-node-2",
+          "cpu_usage": 0.45,
+          "cpu_pressure": 0.08,
+          "memory_usage": 0.50,
+          "memory_pressure": 0.10,
+          "vms": []
+        },
+        {
+          "name": "kwok-node-3",
+          "cpu_usage": 0.75,
+          "cpu_pressure": 0.25,
+          "memory_usage": 0.70,
+          "memory_pressure": 0.20,
+          "vms": []
+        },
+        {
+          "name": "kwok-node-4",
+          "cpu_usage": 0.30,
+          "cpu_pressure": 0.05,
+          "memory_usage": 0.35,
+          "memory_pressure": 0.06,
+          "vms": []
+        },
+        {
+          "name": "kwok-node-5",
+          "cpu_usage": 0.60,
+          "cpu_pressure": 0.15,
+          "memory_usage": 0.55,
+          "memory_pressure": 0.12,
+          "vms": []
+        }
+      ]
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metrics-exporter
+  namespace: monitoring
+  labels:
+    app: metrics-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: metrics-exporter
+  template:
+    metadata:
+      labels:
+        app: metrics-exporter
+    spec:
+      containers:
+        - name: exporter
+          image: python:3.11-slim
+          command:
+            - /bin/bash
+            - -c
+            - |
+              pip install --no-cache-dir flask prometheus-client requests && \
+              cd /app && \
+              python prometheus_exporter.py --host 0.0.0.0 --port 8000 --scenario /config/sample_scenarios.json
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          volumeMounts:
+            - name: app
+              mountPath: /app
+            - name: config
+              mountPath: /config
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: app
+          configMap:
+            name: metrics-exporter-code
+        - name: config
+          configMap:
+            name: metrics-exporter-scenario
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: metrics-exporter
+  namespace: monitoring
+  labels:
+    app: metrics-exporter
+spec:
+  type: NodePort
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      nodePort: 30800
+      protocol: TCP
+  selector:
+    app: metrics-exporter
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: metrics-exporter
+  namespace: monitoring
+  labels:
+    app: metrics-exporter
+spec:
+  selector:
+    matchLabels:
+      app: metrics-exporter
+  endpoints:
+    - port: http
+      interval: 15s
+      path: /metrics

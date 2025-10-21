@@ -2,6 +2,11 @@
 
 A comprehensive simulator for load-aware rebalancing of KubeVirt VMs running on Kubernetes. This tool simulates how the Descheduler redistributes VMs based on node load classification, allowing you to compare different algorithms and threshold strategies for optimal cluster balance.
 
+## Two Modes of Operation
+
+1. **Local Simulation** (this README): Standalone Python simulator with GUI for algorithm development and testing
+2. **Prometheus Integration** ([README_PROMETHEUS.md](README_PROMETHEUS.md)): Closed-loop testing with algorithms implemented as PromQL recording rules
+
 ## Features
 
 ### Core Functionality
