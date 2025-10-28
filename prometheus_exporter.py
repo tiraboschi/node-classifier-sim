@@ -20,6 +20,7 @@ from kubernetes.client.rest import ApiException
 from node import Node, VM
 from scenario_loader import ScenarioLoader
 from pod_manager import PodManager
+from vm_manager import VMManager
 
 # Configure logging
 logging.basicConfig(
@@ -76,15 +77,30 @@ class ExporterState:
     nodes: Dict[str, Node] = field(default_factory=dict)
     lock: threading.Lock = field(default_factory=threading.Lock)
     pod_manager: Optional[PodManager] = None
+    vm_manager: Optional[VMManager] = None
     k8s_client: Optional[client.CoreV1Api] = None
+    custom_api: Optional[client.CustomObjectsApi] = None
+    vm_controller_running: bool = False
+    vm_controller_thread: Optional[threading.Thread] = None
 
     def __post_init__(self):
         """Initialize Kubernetes client and pod manager."""
         try:
-            config.load_kube_config()
+            # Try in-cluster config first (when running as pod), fallback to kubeconfig
+            use_in_cluster = False
+            try:
+                config.load_incluster_config()
+                use_in_cluster = True
+                logger.info("Using in-cluster Kubernetes config")
+            except Exception:
+                config.load_kube_config()
+                logger.info("Using local kubeconfig")
+
             self.k8s_client = client.CoreV1Api()
-            self.pod_manager = PodManager(namespace="default", use_in_cluster_config=False)
-            logger.info("Kubernetes client and pod manager initialized")
+            self.custom_api = client.CustomObjectsApi()
+            self.pod_manager = PodManager(namespace="default", use_in_cluster_config=use_in_cluster)
+            self.vm_manager = VMManager(namespace="default", use_in_cluster_config=use_in_cluster)
+            logger.info("Kubernetes client, pod manager, and VM manager initialized")
         except Exception as e:
             logger.warning(f"Could not initialize Kubernetes client: {e}")
             logger.warning("Running without pod management - metrics will be calculated from VMs directly")
@@ -215,6 +231,154 @@ class ExporterState:
         """Get all nodes."""
         with self.lock:
             return list(self.nodes.values())
+
+    def _sync_vm_crs_to_pods(self):
+        """
+        Synchronize VirtualMachine CRs with virt-launcher pods.
+        Creates pods for VMs that don't have them, updates VM status for existing pods.
+        """
+        if not self.vm_manager or not self.pod_manager or not self.custom_api:
+            return
+
+        try:
+            # List all VirtualMachine CRs
+            vms_list = self.custom_api.list_namespaced_custom_object(
+                group="simulation.node-classifier.io",
+                version="v1alpha1",
+                namespace="default",
+                plural="virtualmachines"
+            )
+
+            for vm_obj in vms_list.get("items", []):
+                vm_name = vm_obj["metadata"]["name"]
+                spec = vm_obj.get("spec", {})
+                status = vm_obj.get("status", {})
+
+                # Parse VM resources from spec
+                resources = spec.get("resources", {})
+                utilization = spec.get("utilization", {})
+
+                cpu_cores = float(resources.get("cpu", "1.0"))
+                memory_str = resources.get("memory", "2Gi")
+
+                # Parse memory string (e.g., "4Gi", "2048Mi")
+                if memory_str.endswith("Gi"):
+                    memory_bytes = int(float(memory_str[:-2]) * 1024**3)
+                elif memory_str.endswith("Mi"):
+                    memory_bytes = int(float(memory_str[:-2]) * 1024**2)
+                else:
+                    memory_bytes = int(memory_str)
+
+                cpu_util = float(utilization.get("cpu", "0.5"))
+                memory_util = float(utilization.get("memory", "0.5"))
+
+                # Create VM object
+                vm = VM(
+                    id=vm_name,
+                    cpu_cores=cpu_cores,
+                    memory_bytes=memory_bytes,
+                    cpu_utilization=cpu_util,
+                    memory_utilization=memory_util
+                )
+
+                # Check if pod exists for this VM
+                pod_name = status.get("podName", "")
+
+                if not pod_name or not self._pod_exists(pod_name):
+                    # No pod or pod doesn't exist - create one
+                    logger.info(f"Creating virt-launcher pod for VM {vm_name}")
+                    created_pod_name = self.pod_manager.create_pod(vm)
+                    if created_pod_name:
+                        vm.pod_name = created_pod_name
+                        # Update VM status to Scheduling
+                        self.vm_manager.update_vm_status(vm_name, "Scheduling", created_pod_name)
+                else:
+                    # Pod exists - update VM status from pod
+                    vm.pod_name = pod_name
+                    self._update_vm_status_from_pod(vm, pod_name)
+
+        except ApiException as e:
+            logger.error(f"Failed to sync VM CRs to pods: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error syncing VM CRs: {e}", exc_info=True)
+
+    def _pod_exists(self, pod_name: str) -> bool:
+        """Check if a pod exists."""
+        try:
+            self.k8s_client.read_namespaced_pod(name=pod_name, namespace="default")
+            return True
+        except ApiException:
+            return False
+
+    def _update_vm_status_from_pod(self, vm: VM, pod_name: str):
+        """Update VM status based on pod status."""
+        try:
+            pod = self.k8s_client.read_namespaced_pod(name=pod_name, namespace="default")
+            node_name = pod.spec.node_name or ""
+
+            # Update VM's scheduled_node field
+            vm.scheduled_node = node_name
+
+            # Determine phase
+            if pod.status.phase == "Running":
+                phase = "Running"
+            elif pod.status.phase == "Pending":
+                phase = "Scheduling" if not node_name else "Scheduled"
+            elif pod.status.phase in ["Failed", "Unknown"]:
+                phase = "Failed"
+            else:
+                phase = "Pending"
+
+            self.vm_manager.update_vm_status(vm.id, phase, pod_name, node_name)
+
+        except ApiException as e:
+            logger.error(f"Failed to read pod {pod_name}: {e}")
+
+    def _vm_controller_loop(self):
+        """Background loop that watches VirtualMachine CRs and creates pods."""
+        import time
+
+        logger.info("VM controller started")
+
+        while self.vm_controller_running:
+            try:
+                self._sync_vm_crs_to_pods()
+            except Exception as e:
+                logger.error(f"Error in VM controller loop: {e}", exc_info=True)
+
+            # Sleep for a bit before next sync
+            time.sleep(5)
+
+        logger.info("VM controller stopped")
+
+    def start_vm_controller(self):
+        """Start the VM controller in a background thread."""
+        if self.vm_controller_running:
+            logger.warning("VM controller already running")
+            return
+
+        if not self.vm_manager or not self.pod_manager:
+            logger.warning("Cannot start VM controller: managers not initialized")
+            return
+
+        self.vm_controller_running = True
+        self.vm_controller_thread = threading.Thread(
+            target=self._vm_controller_loop,
+            daemon=True,
+            name="vm-controller"
+        )
+        self.vm_controller_thread.start()
+        logger.info("VM controller thread started")
+
+    def stop_vm_controller(self):
+        """Stop the VM controller."""
+        if not self.vm_controller_running:
+            return
+
+        self.vm_controller_running = False
+        if self.vm_controller_thread:
+            self.vm_controller_thread.join(timeout=10)
+        logger.info("VM controller stopped")
 
     def load_scenario(self, nodes: List[Node]):
         """Load a complete scenario and create pods for all VMs."""
@@ -538,5 +702,12 @@ if __name__ == '__main__':
     # Initialize with scenario if provided
     initialize_from_file(args.scenario)
 
+    # Start VM controller to watch for VirtualMachine CRs
+    state.start_vm_controller()
+
     logger.info(f"Starting Prometheus Exporter on {args.host}:{args.port}")
-    app.run(host=args.host, port=args.port)
+    try:
+        app.run(host=args.host, port=args.port)
+    finally:
+        # Clean shutdown
+        state.stop_vm_controller()
