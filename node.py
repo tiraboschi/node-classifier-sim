@@ -5,26 +5,86 @@ import json
 
 @dataclass
 class VM:
-    """Represents a Virtual Machine with its resource consumption."""
+    """Represents a Virtual Machine with its resource allocation and utilization."""
     id: str  # Unique identifier (e.g., "vm-1", "vm-2")
-    cpu_consumption: float  # CPU consumption (0.0 to vm_cpu_percent)
-    memory_consumption: float  # Memory consumption (0.0 to vm_memory_percent)
+
+    # Resource allocation (what the VM has)
+    cpu_cores: float = 1.0  # Number of CPU cores allocated (e.g., 2.0, 0.5)
+    memory_bytes: int = 1073741824  # Memory in bytes (e.g., 1073741824 = 1Gi)
+
+    # Resource utilization (what the VM is actually using - for simulation)
+    cpu_utilization: float = 0.5  # CPU utilization ratio (0.0-1.0+, relative to cpu_cores)
+    memory_utilization: float = 0.8  # Memory utilization ratio (0.0-1.0, relative to memory_bytes)
+
+    # Pod tracking
+    pod_name: str = ""  # Name of the virt-launcher pod executing this VM
+    scheduled_node: str = ""  # Node where the pod is scheduled (filled by watching)
+
+    @property
+    def cpu_consumption(self) -> float:
+        """
+        Calculate actual CPU consumption as ratio of node capacity.
+        Assuming 32 cores per node for backward compatibility.
+        """
+        return (self.cpu_cores * self.cpu_utilization) / 32.0
+
+    @property
+    def memory_consumption(self) -> float:
+        """
+        Calculate actual memory consumption as ratio of node capacity.
+        Assuming 128Gi per node for backward compatibility.
+        """
+        node_memory_bytes = 128 * 1024 * 1024 * 1024  # 128Gi
+        return (self.memory_bytes * self.memory_utilization) / node_memory_bytes
+
+    def memory_gi(self) -> float:
+        """Get memory in GiB."""
+        return self.memory_bytes / (1024 ** 3)
+
+    def memory_mi(self) -> float:
+        """Get memory in MiB."""
+        return self.memory_bytes / (1024 ** 2)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert VM to dictionary representation."""
         return {
             "id": self.id,
-            "cpu_consumption": self.cpu_consumption,
-            "memory_consumption": self.memory_consumption
+            "cpu_cores": self.cpu_cores,
+            "memory_bytes": self.memory_bytes,
+            "cpu_utilization": self.cpu_utilization,
+            "memory_utilization": self.memory_utilization,
+            "pod_name": self.pod_name,
+            "scheduled_node": self.scheduled_node
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'VM':
         """Create VM from dictionary representation."""
+        # Handle backward compatibility with old format
+        if "cpu_consumption" in data and "cpu_cores" not in data:
+            # Old format: convert consumption ratios to new format
+            # Assume 32 cores and 128Gi per node
+            cpu_consumption = data["cpu_consumption"]
+            memory_consumption = data["memory_consumption"]
+            return cls(
+                id=data["id"],
+                cpu_cores=2.0,  # Default 2 cores
+                memory_bytes=4 * 1024 ** 3,  # Default 4Gi
+                cpu_utilization=cpu_consumption * 32.0 / 2.0,  # Scale to new format
+                memory_utilization=memory_consumption * 128.0 / 4.0,
+                pod_name=data.get("pod_name", ""),
+                scheduled_node=data.get("scheduled_node", "")
+            )
+
+        # New format
         return cls(
             id=data["id"],
-            cpu_consumption=data["cpu_consumption"],
-            memory_consumption=data["memory_consumption"]
+            cpu_cores=data.get("cpu_cores", 1.0),
+            memory_bytes=data.get("memory_bytes", 1073741824),
+            cpu_utilization=data.get("cpu_utilization", 0.5),
+            memory_utilization=data.get("memory_utilization", 0.8),
+            pod_name=data.get("pod_name", ""),
+            scheduled_node=data.get("scheduled_node", "")
         )
 
 

@@ -20,6 +20,7 @@ python cli_prometheus.py
 
 A complete closed-loop testing environment with:
 - **5 KWOK nodes** (fake Kubernetes nodes)
+- **VirtualMachine CRD** (KubeVirt-like VM resources)
 - **Prometheus** with recording rules
 - **Synthetic metrics exporter** with dynamic feedback
 - **Node classifier simulator** integrated with Prometheus
@@ -115,6 +116,35 @@ python cli_prometheus.py
 | Metrics Exporter | http://localhost:8000/metrics | View raw metrics |
 | Exporter Health | http://localhost:8000/health | Check exporter status |
 | Exporter State | http://localhost:8000/scenario | View current node state |
+
+## Working with VirtualMachines
+
+The VirtualMachine CRD is automatically installed by `setup-kind-env.sh`:
+
+```bash
+# List VMs
+kubectl get vm
+
+# Create example VMs
+kubectl apply -f k8s/example-vms.yaml
+
+# Describe a VM
+kubectl describe vm vm-small-1
+
+# View VM details
+kubectl get vm -o wide
+
+# Watch VM status changes
+kubectl get vm -w
+```
+
+VMs show:
+- **Allocated resources** (CPU cores, memory)
+- **Utilization** (what VM is actually using)
+- **Pod name** (virt-launcher pod executing the VM)
+- **Node** (where scheduler placed it)
+
+See [README_VM_CRD.md](README_VM_CRD.md) and [RESOURCE_MODEL.md](RESOURCE_MODEL.md) for details.
 
 ## Useful PromQL Queries
 

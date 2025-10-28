@@ -217,6 +217,18 @@ install_kwok() {
     kubectl delete pod -n kube-system --field-selector=status.phase=Pending --force --grace-period=0 2>/dev/null || true
 }
 
+install_vm_crd() {
+    info "Installing VirtualMachine CRD..."
+
+    # Install the CRD
+    kubectl apply -f k8s/virtualmachine-crd.yaml
+
+    info "Waiting for VirtualMachine CRD to be established..."
+    kubectl wait --for condition=established --timeout=60s crd/virtualmachines.simulation.node-classifier.io
+
+    info "VirtualMachine CRD installed successfully"
+}
+
 install_prometheus_operator() {
     info "Installing Prometheus Operator..."
 
@@ -274,6 +286,8 @@ build_and_deploy_exporter() {
         --from-file=prometheus_exporter.py \
         --from-file=node.py \
         --from-file=scenario_loader.py \
+        --from-file=pod_manager.py \
+        --from-file=vm_manager.py \
         -n monitoring \
         --dry-run=client -o yaml | kubectl apply -f -
 
@@ -290,6 +304,10 @@ verify_installation() {
     echo ""
     info "Cluster nodes:"
     kubectl get nodes
+
+    echo ""
+    info "VirtualMachine CRD:"
+    kubectl get crd virtualmachines.simulation.node-classifier.io
 
     echo ""
     info "Monitoring pods:"
@@ -310,6 +328,12 @@ print_access_info() {
     echo "Setup Complete!"
     echo "========================================"
     echo ""
+    info "Installed components:"
+    echo "  ✓ KIND cluster with KWOK nodes"
+    echo "  ✓ VirtualMachine CRD"
+    echo "  ✓ Prometheus Operator"
+    echo "  ✓ Metrics Exporter"
+    echo ""
     info "Access endpoints:"
     echo "  Prometheus:       http://localhost:9090"
     echo "  Metrics Exporter: http://localhost:8000"
@@ -318,6 +342,11 @@ print_access_info() {
     echo "  curl http://localhost:8000/health"
     echo "  curl http://localhost:8000/metrics"
     echo "  curl http://localhost:9090/-/healthy"
+    echo ""
+    info "Work with VirtualMachines:"
+    echo "  kubectl get vm                     # List VMs"
+    echo "  kubectl apply -f k8s/example-vms.yaml  # Create example VMs"
+    echo "  kubectl describe vm <name>         # Get VM details"
     echo ""
     info "Load metrics into Prometheus:"
     echo "  python prometheus_loader.py --url http://localhost:9090"
@@ -335,6 +364,7 @@ main() {
     check_prereqs
     create_kind_cluster
     install_kwok
+    install_vm_crd
     install_prometheus_operator
     build_and_deploy_exporter
     verify_installation
