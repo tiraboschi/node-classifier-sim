@@ -1,0 +1,151 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: virtualmachines.simulation.node-classifier.io
+spec:
+  group: simulation.node-classifier.io
+  names:
+    kind: VirtualMachine
+    listKind: VirtualMachineList
+    plural: virtualmachines
+    singular: virtualmachine
+    shortNames:
+    - vm
+    - vms
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            required:
+            - resources
+            properties:
+              resources:
+                type: object
+                description: Resource allocation for the VM
+                required:
+                - cpu
+                - memory
+                properties:
+                  cpu:
+                    type: string
+                    description: Number of CPU cores allocated to the VM (e.g., "2", "0.5", "4")
+                    pattern: '^\d+(\.\d+)?$'
+                  memory:
+                    type: string
+                    description: Memory allocated to the VM (e.g., "4Gi", "2048Mi", "1073741824" bytes)
+              utilization:
+                type: object
+                description: Expected resource utilization ratios (for simulation)
+                properties:
+                  cpu:
+                    type: string
+                    description: CPU utilization ratio relative to allocated cores (e.g., "0.5" = 50% of allocated cores)
+                    pattern: '^0\.\d+$|^1\.0+$'
+                    default: "0.5"
+                  memory:
+                    type: string
+                    description: Memory utilization ratio relative to allocated memory (e.g., "0.8" = 80% of allocated memory)
+                    pattern: '^0\.\d+$|^1\.0+$'
+                    default: "0.8"
+              running:
+                type: boolean
+                description: Whether the VM should be running
+                default: true
+          status:
+            type: object
+            properties:
+              phase:
+                type: string
+                description: Current phase of the VM
+                enum:
+                - Pending
+                - Scheduling
+                - Scheduled
+                - Running
+                - Failed
+              nodeName:
+                type: string
+                description: Name of the node where the VM is running
+              podName:
+                type: string
+                description: Name of the virt-launcher pod executing this VM
+              allocatedCpu:
+                type: string
+                description: CPU cores allocated to the VM
+              allocatedMemory:
+                type: string
+                description: Memory allocated to the VM
+              cpuUtilization:
+                type: string
+                description: Current CPU utilization ratio (0.0-1.0+)
+              memoryUtilization:
+                type: string
+                description: Current memory utilization ratio (0.0-1.0)
+              conditions:
+                type: array
+                description: Current conditions of the VM
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      description: Type of condition
+                    status:
+                      type: string
+                      description: Status of the condition (True, False, Unknown)
+                      enum:
+                      - "True"
+                      - "False"
+                      - "Unknown"
+                    lastTransitionTime:
+                      type: string
+                      format: date-time
+                      description: Last time the condition transitioned
+                    reason:
+                      type: string
+                      description: Machine-readable reason for the condition
+                    message:
+                      type: string
+                      description: Human-readable message about the condition
+              createdAt:
+                type: string
+                format: date-time
+                description: When the VM was created
+    subresources:
+      status: {}
+    additionalPrinterColumns:
+    - name: Phase
+      type: string
+      description: Current phase of the VM
+      jsonPath: .status.phase
+    - name: CPU
+      type: string
+      description: CPU cores allocated
+      jsonPath: .spec.resources.cpu
+    - name: Memory
+      type: string
+      description: Memory allocated
+      jsonPath: .spec.resources.memory
+    - name: CPU-Util
+      type: string
+      description: CPU utilization ratio
+      jsonPath: .status.cpuUtilization
+    - name: Mem-Util
+      type: string
+      description: Memory utilization ratio
+      jsonPath: .status.memoryUtilization
+    - name: Node
+      type: string
+      description: Node where VM is running
+      jsonPath: .status.nodeName
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp

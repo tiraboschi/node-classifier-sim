@@ -76,7 +76,7 @@ spec:
             - /bin/bash
             - -c
             - |
-              pip install --no-cache-dir flask prometheus-client requests && \
+              pip install --no-cache-dir flask prometheus-client requests kubernetes && \
               cd /app && \
               python prometheus_exporter.py --host 0.0.0.0 --port 8000 --scenario /config/sample_scenarios.json
           ports:
