@@ -1,5 +1,53 @@
 ---
 apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: metrics-exporter
+  namespace: monitoring
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: metrics-exporter
+rules:
+  # Read nodes for metrics
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  # Manage pods for VMs
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "delete", "update", "patch"]
+  # Read pod status
+  - apiGroups: [""]
+    resources: ["pods/status"]
+    verbs: ["get"]
+  # Manage VirtualMachine CRs
+  - apiGroups: ["simulation.node-classifier.io"]
+    resources: ["virtualmachines"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Update VirtualMachine status
+  - apiGroups: ["simulation.node-classifier.io"]
+    resources: ["virtualmachines/status"]
+    verbs: ["get", "update", "patch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: metrics-exporter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: metrics-exporter
+subjects:
+  - kind: ServiceAccount
+    name: metrics-exporter
+    namespace: monitoring
+
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: metrics-exporter-scenario
@@ -69,6 +117,7 @@ spec:
       labels:
         app: metrics-exporter
     spec:
+      serviceAccountName: metrics-exporter
       containers:
         - name: exporter
           image: python:3.11-slim

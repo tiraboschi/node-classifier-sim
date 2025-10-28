@@ -215,6 +215,9 @@ install_kwok() {
     info "Cleaning up pending pods on KWOK nodes..."
     # Delete any pending pods scheduled to KWOK nodes
     kubectl delete pod -n kube-system --field-selector=status.phase=Pending --force --grace-period=0 2>/dev/null || true
+
+    info "Installing KWOK pod stages (to move pods to Running state)..."
+    kubectl apply -f k8s/kwok-pod-stage.yaml
 }
 
 install_vm_crd() {
