@@ -281,6 +281,11 @@ install_prometheus_operator() {
     kubectl delete pod -n monitoring --field-selector=status.phase=Pending --force --grace-period=0 2>/dev/null || true
 }
 
+install_descheduler() {
+    info "Installing Descheduler..."
+    kubectl apply -f k8s/descheduler.yaml
+}
+
 build_and_deploy_exporter() {
     info "Building metrics exporter ConfigMap..."
 
@@ -317,6 +322,10 @@ verify_installation() {
     kubectl get pods -n monitoring
 
     echo ""
+    info "Descheduler pods:"
+    kubectl get pods -n kube-descheduler
+
+    echo ""
     info "Services:"
     kubectl get svc -n monitoring
 
@@ -335,6 +344,7 @@ print_access_info() {
     echo "  ✓ KIND cluster with KWOK nodes"
     echo "  ✓ VirtualMachine CRD"
     echo "  ✓ Prometheus Operator"
+    echo "  ✓ Descheduler"
     echo "  ✓ Metrics Exporter"
     echo ""
     info "Access endpoints:"
@@ -369,6 +379,7 @@ main() {
     install_kwok
     install_vm_crd
     install_prometheus_operator
+    install_descheduler
     build_and_deploy_exporter
     verify_installation
     print_access_info

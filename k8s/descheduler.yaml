@@ -1,0 +1,326 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: descheduler-operand
+  namespace: kube-descheduler
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: descheduler-softtainter
+  namespace: kube-descheduler
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: descheduler-operand
+rules:
+  - apiGroups:
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - get
+      - watch
+      - list
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - nodes
+      - namespaces
+    verbs:
+      - get
+      - watch
+      - list
+  - apiGroups:
+      - ""
+    resources:
+      - pods/eviction
+    verbs:
+      - create
+  - apiGroups:
+      - scheduling.k8s.io
+    resources:
+      - priorityclasses
+    verbs:
+      - get
+      - watch
+      - list
+  - apiGroups:
+      - policy
+    resources:
+      - poddisruptionbudgets
+    verbs:
+      - get
+      - watch
+      - list
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - create
+  - apiGroups:
+      - coordination.k8s.io
+    resourceNames:
+      - descheduler
+    resources:
+      - leases
+    verbs:
+      - get
+      - patch
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: descheduler-softtainter
+rules:
+  - apiGroups:
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - get
+      - watch
+      - list
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - watch
+      - list
+      - patch
+      - update
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - create
+  - apiGroups:
+      - coordination.k8s.io
+    resourceNames:
+      - soft-tainter-lock
+    resources:
+      - leases
+    verbs:
+      - get
+      - patch
+      - update
+      - delete
+  - apiGroups:
+      - operator.openshift.io
+    resources:
+      - kubedeschedulers
+    verbs:
+      - get
+      - watch
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: descheduler-operand
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: descheduler-operand
+subjects:
+  - kind: ServiceAccount
+    name: descheduler-operand
+    namespace: kube-descheduler
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: descheduler-softtainter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: descheduler-softtainter
+subjects:
+  - kind: ServiceAccount
+    name: descheduler-softtainter
+    namespace: kube-descheduler
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: descheduler
+  name: descheduler
+  namespace: kube-descheduler
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: descheduler
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: descheduler
+    spec:
+      containers:
+        - args:
+            - --policy-config-file=/policy-dir/policy.yaml
+            - --logging-format=text
+            - --tls-cert-file=/certs-dir/tls.crt
+            - --tls-private-key-file=/certs-dir/tls.key
+            - --descheduling-interval=60s
+            - --feature-gates=EvictionsInBackground=true
+            - --tls-cipher-suites=TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_CHACHA20_POLY1305_SHA256,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+            - --tls-min-version=VersionTLS12
+            - -v=2
+          command:
+            - /bin/descheduler
+          image: quay.io/tiraboschi/descheduler:nodesim
+          imagePullPolicy: IfNotPresent
+          name: descheduler
+          resources:
+            requests:
+              cpu: 100m
+              memory: 500Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /policy-dir
+              name: policy-volume
+            - mountPath: /certs-dir
+              name: certs-dir
+      dnsPolicy: ClusterFirst
+      priorityClassName: system-cluster-critical
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccount: descheduler-operand
+      serviceAccountName: descheduler-operand
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - configMap:
+            defaultMode: 420
+            name: cluster
+          name: policy-volume
+        - name: certs-dir
+          secret:
+            defaultMode: 420
+            secretName: kube-descheduler-serving-cert
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: softtainer
+  name: softtainter
+  namespace: kube-descheduler
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: softtainer
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: softtainer
+    spec:
+      containers:
+        - args:
+            - --policy-config-file=/policy-dir/policy.yaml
+            - -v=2
+          command:
+            - /usr/bin/soft-tainter
+          image: quay.io/tiraboschi/descheduler-softtainer:nodesim
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 1
+            httpGet:
+              path: /livez
+              port: 6060
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: softtainer
+          readinessProbe:
+            failureThreshold: 1
+            httpGet:
+              path: /readyz
+              port: 6060
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            requests:
+              cpu: 100m
+              memory: 500Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /policy-dir
+              name: policy-volume
+            - mountPath: /certs-dir
+              name: certs-dir
+      dnsPolicy: ClusterFirst
+      priorityClassName: system-cluster-critical
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccount: descheduler-softtainter
+      serviceAccountName: descheduler-softtainter
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - configMap:
+            defaultMode: 420
+            name: cluster
+          name: policy-volume
+        - name: certs-dir
+          secret:
+            defaultMode: 420
+            secretName: kube-descheduler-serving-cert
