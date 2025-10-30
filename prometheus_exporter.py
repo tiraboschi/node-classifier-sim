@@ -510,10 +510,27 @@ def metrics():
     Prometheus scrape endpoint.
     Refreshes metrics from pods before serving.
     """
-    # Refresh metrics for all known nodes
+    # Discover all KWOK nodes and update metrics for them
+    nodes_updated = 0
+    if state.k8s_client:
+        try:
+            nodes = state.k8s_client.list_node(label_selector="type=kwok")
+            logger.info(f"Found {len(nodes.items)} KWOK nodes to update metrics")
+            for node in nodes.items:
+                node_name = node.metadata.name
+                logger.info(f"Updating metrics for {node_name}")
+                state.update_node_metrics(node_name)
+                nodes_updated += 1
+        except Exception as e:
+            logger.error(f"Failed to list KWOK nodes: {e}", exc_info=True)
+    else:
+        logger.warning("k8s_client not available, cannot discover KWOK nodes")
+
+    # Also refresh metrics for any nodes already in state (backward compatibility)
     for node_name in list(state.nodes.keys()):
         state.update_node_metrics(node_name)
 
+    logger.info(f"Metrics endpoint: updated {nodes_updated} nodes")
     return Response(generate_latest(registry), mimetype='text/plain')
 
 
