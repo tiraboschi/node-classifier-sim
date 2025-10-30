@@ -24,6 +24,23 @@ spec:
         - record: descheduler:node:memory_pressure:psi
           expr: node_memory_pressure_psi
 
+        # Combined metric for descheduler LowNodeUtilization plugin
+        # Average of CPU and memory metrics (both usage and pressure)
+        # This is the metric the descheduler expects
+        # Multiplied by 100 to convert to percentage (0-100 scale)
+        # Rename 'node' label to 'instance' as descheduler expects
+        - record: descheduler:combined_utilization_and_pressure:avg1m
+          expr: |-
+            label_replace(
+              (
+                node_cpu_usage_ratio +
+                node_cpu_pressure_psi +
+                node_memory_usage_ratio +
+                node_memory_pressure_psi
+              ) / 4 * 100,
+              "instance", "$1", "node", "(.*)"
+            )
+
     - name: descheduler.cluster.averages
       interval: 15s
       rules:
