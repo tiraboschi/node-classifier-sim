@@ -205,6 +205,9 @@ install_kwok() {
     sleep 5
     kubectl wait --for=condition=Ready node -l type=kwok --timeout=60s
 
+    info "Labeling KWOK nodes as schedulable for KubeVirt..."
+    kubectl label nodes -l type=kwok kubevirt.io/schedulable=true --overwrite
+
     info "Patching DaemonSets to avoid KWOK nodes..."
     # Patch kindnet to only run on real nodes
     kubectl patch daemonset kindnet -n kube-system --type='json' -p='[{"op": "add", "path": "/spec/template/spec/affinity", "value": {"nodeAffinity": {"requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [{"matchExpressions": [{"key": "type", "operator": "NotIn", "values": ["kwok"]}]}]}}}}]'
@@ -283,7 +286,173 @@ install_prometheus_operator() {
 
 install_descheduler() {
     info "Installing Descheduler..."
+
+    # Create namespaces
+    info "Creating kube-descheduler namespace..."
+    kubectl create namespace kube-descheduler --dry-run=client -o yaml | kubectl apply -f -
+
+    info "Creating openshift-kube-descheduler-operator namespace (for softtainter leader election)..."
+    kubectl create namespace openshift-kube-descheduler-operator --dry-run=client -o yaml | kubectl apply -f -
+
+    # Install KubeDescheduler CRD (required by softtainter)
+    info "Installing KubeDescheduler CRD..."
+    kubectl apply -f k8s/kubedescheduler-crd.yaml
+
+    info "Waiting for KubeDescheduler CRD to be established..."
+    kubectl wait --for condition=established --timeout=60s crd/kubedeschedulers.operator.openshift.io
+
+    # Create KubeDescheduler instance
+    info "Creating KubeDescheduler instance..."
+    kubectl apply -f k8s/kubedescheduler-instance.yaml
+
+    # Generate TLS certificate
+    info "Generating TLS certificates for descheduler..."
+    TLS_DIR=$(mktemp -d)
+    openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout "$TLS_DIR/tls.key" \
+        -out "$TLS_DIR/tls.crt" \
+        -days 365 \
+        -subj "/CN=descheduler.kube-descheduler.svc" \
+        2>/dev/null
+
+    kubectl create secret tls kube-descheduler-serving-cert \
+        -n kube-descheduler \
+        --cert="$TLS_DIR/tls.crt" \
+        --key="$TLS_DIR/tls.key" \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+    rm -rf "$TLS_DIR"
+
+    # Create descheduler policy ConfigMap
+    info "Creating descheduler policy ConfigMap..."
+    kubectl apply -f k8s/descheduler-policy.yaml
+
+    # Generate Prometheus TLS certificates for nginx proxy
+    # Sign with Kubernetes CA so descheduler automatically trusts it
+    info "Generating Prometheus proxy TLS certificates signed by Kubernetes CA..."
+    PROM_TLS_DIR=$(mktemp -d)
+
+    # Get Kubernetes CA certificate from the cluster (works with any container runtime)
+    # The CA cert is available in ConfigMap kube-root-ca.crt in every namespace
+    kubectl get configmap kube-root-ca.crt -n kube-system -o jsonpath='{.data.ca\.crt}' > "$PROM_TLS_DIR/k8s-ca.crt"
+
+    # Get the CA private key from the control plane
+    # Detect container runtime (docker or podman)
+    if command -v docker &> /dev/null && docker ps &> /dev/null; then
+        CONTAINER_RUNTIME="docker"
+    elif command -v podman &> /dev/null; then
+        CONTAINER_RUNTIME="podman"
+    else
+        error "Neither docker nor podman found or accessible"
+        exit 1
+    fi
+
+    $CONTAINER_RUNTIME exec ${KIND_CLUSTER_NAME}-control-plane cat /etc/kubernetes/pki/ca.key > "$PROM_TLS_DIR/k8s-ca.key"
+
+    # Create server certificate configuration
+    cat > "$PROM_TLS_DIR/server.conf" << 'EOF'
+[req]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+CN = prometheus
+
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = nonRepudiation,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = prometheus-operator-kube-p-prometheus
+DNS.2 = prometheus-operator-kube-p-prometheus.monitoring
+DNS.3 = prometheus-operator-kube-p-prometheus.monitoring.svc
+DNS.4 = prometheus-operator-kube-p-prometheus.monitoring.svc.cluster.local
+DNS.5 = localhost
+IP.1 = 127.0.0.1
+EOF
+
+    # Generate server key and CSR
+    openssl req -newkey rsa:2048 -nodes \
+        -keyout "$PROM_TLS_DIR/tls.key" \
+        -out "$PROM_TLS_DIR/server.csr" \
+        -config "$PROM_TLS_DIR/server.conf" \
+        2>/dev/null
+
+    # Sign server certificate with Kubernetes CA
+    openssl x509 -req \
+        -in "$PROM_TLS_DIR/server.csr" \
+        -CA "$PROM_TLS_DIR/k8s-ca.crt" \
+        -CAkey "$PROM_TLS_DIR/k8s-ca.key" \
+        -CAcreateserial \
+        -out "$PROM_TLS_DIR/tls.crt" \
+        -days 365 \
+        -extensions v3_req \
+        -extfile "$PROM_TLS_DIR/server.conf" \
+        2>/dev/null
+
+    # Create prometheus-web-tls Secret (signed by Kubernetes CA)
+    info "Creating prometheus-web-tls Secret (signed by Kubernetes CA)..."
+    kubectl create secret tls prometheus-web-tls \
+        -n kube-descheduler \
+        --cert="$PROM_TLS_DIR/tls.crt" \
+        --key="$PROM_TLS_DIR/tls.key" \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+    # Create nginx proxy configuration
+    info "Creating nginx proxy configuration..."
+    cat > "$PROM_TLS_DIR/nginx.conf" << 'EOF'
+events {
+    worker_connections 1024;
+}
+
+http {
+    upstream prometheus {
+        server prometheus-operator-kube-p-prometheus.monitoring.svc.cluster.local:9090;
+    }
+
+    server {
+        listen 443 ssl;
+        server_name localhost 127.0.0.1;
+
+        ssl_certificate /tls/tls.crt;
+        ssl_certificate_key /tls/tls.key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+
+        location / {
+            proxy_pass http://prometheus;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+}
+EOF
+
+    kubectl create configmap prometheus-proxy-config \
+        -n kube-descheduler \
+        --from-file=nginx.conf="$PROM_TLS_DIR/nginx.conf" \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+    rm -rf "$PROM_TLS_DIR"
+
+    # Label KWOK nodes with kubevirt.io/schedulable=true
+    info "Labeling KWOK nodes with kubevirt.io/schedulable=true..."
+    kubectl get nodes -l type=kwok -o name | xargs -I {} kubectl label {} kubevirt.io/schedulable=true --overwrite
+
+    # Apply descheduler deployment
+    info "Deploying descheduler and softtainter..."
     kubectl apply -f k8s/descheduler.yaml
+
+    info "Waiting for descheduler to be ready..."
+    kubectl wait --for=condition=Available deployment/descheduler -n kube-descheduler --timeout=120s || warn "Descheduler deployment not ready yet"
+
+    info "Waiting for softtainter to be ready..."
+    kubectl wait --for=condition=Available deployment/softtainter -n kube-descheduler --timeout=120s || warn "Softtainter deployment not ready yet"
 }
 
 build_and_deploy_exporter() {
