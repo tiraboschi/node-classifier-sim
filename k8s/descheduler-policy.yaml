@@ -1,0 +1,136 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster
+  namespace: kube-descheduler
+data:
+  policy.yaml: |
+    apiVersion: descheduler/v1alpha2
+    kind: DeschedulerPolicy
+    maxNoOfPodsToEvictPerNode: 2
+    maxNoOfPodsToEvictTotal: 5
+    metricsProviders:
+    - prometheus:
+        url: https://127.0.0.1
+      source: Prometheus
+    nodeSelector: kubevirt.io/schedulable=true
+    profiles:
+    - name: KubeVirtRelieveAndMigrate
+      pluginConfig:
+      - args:
+          evictableNamespaces:
+            exclude:
+            - kube-system
+            - hypershift
+            - openshift
+            - openshift-apiserver
+            - openshift-apiserver-operator
+            - openshift-authentication
+            - openshift-authentication-operator
+            - openshift-catalogd
+            - openshift-cloud-controller-manager
+            - openshift-cloud-controller-manager-operator
+            - openshift-cloud-credential-operator
+            - openshift-cloud-network-config-controller
+            - openshift-cloud-platform-infra
+            - openshift-cluster-csi-drivers
+            - openshift-cluster-machine-approver
+            - openshift-cluster-node-tuning-operator
+            - openshift-cluster-olm-operator
+            - openshift-cluster-samples-operator
+            - openshift-cluster-storage-operator
+            - openshift-cluster-version
+            - openshift-cnv
+            - openshift-config
+            - openshift-config-managed
+            - openshift-config-operator
+            - openshift-console
+            - openshift-console-operator
+            - openshift-console-user-settings
+            - openshift-controller-manager
+            - openshift-controller-manager-operator
+            - openshift-dns
+            - openshift-dns-operator
+            - openshift-etcd
+            - openshift-etcd-operator
+            - openshift-host-network
+            - openshift-image-registry
+            - openshift-infra
+            - openshift-ingress
+            - openshift-ingress-canary
+            - openshift-ingress-operator
+            - openshift-insights
+            - openshift-kni-infra
+            - openshift-kube-apiserver
+            - openshift-kube-apiserver-operator
+            - openshift-kube-controller-manager
+            - openshift-kube-controller-manager-operator
+            - openshift-kube-descheduler-operator
+            - openshift-kube-scheduler
+            - openshift-kube-scheduler-operator
+            - openshift-kube-storage-version-migrator
+            - openshift-kube-storage-version-migrator-operator
+            - openshift-local-storage
+            - openshift-machine-api
+            - openshift-machine-config-operator
+            - openshift-manila-csi-driver
+            - openshift-marketplace
+            - openshift-monitoring
+            - openshift-multus
+            - openshift-network-console
+            - openshift-network-diagnostics
+            - openshift-network-node-identity
+            - openshift-network-operator
+            - openshift-nmstate
+            - openshift-node
+            - openshift-nutanix-infra
+            - openshift-oauth-apiserver
+            - openshift-openstack-infra
+            - openshift-operator-controller
+            - openshift-operator-lifecycle-manager
+            - openshift-operators
+            - openshift-ovirt-infra
+            - openshift-ovn-kubernetes
+            - openshift-route-controller-manager
+            - openshift-service-ca
+            - openshift-service-ca-operator
+            - openshift-storage
+            - openshift-user-workload-monitoring
+            - openshift-virtualization-os-images
+            - openshift-vsphere-infra
+          metricsUtilization:
+            prometheus:
+              query: descheduler:combined_utilization_and_pressure:avg1m
+            source: Prometheus
+          targetThresholds:
+            MetricResource: 10
+          thresholds:
+            MetricResource: 10
+          useDeviationThresholds: true
+        name: LowNodeUtilization
+      - args:
+          evictLocalStoragePods: true
+          noEvictionPolicy: Mandatory
+        name: DefaultEvictor
+      plugins:
+        balance:
+          disabled: null
+          enabled:
+          - LowNodeUtilization
+        deschedule:
+          disabled: null
+          enabled: null
+        filter:
+          disabled: null
+          enabled:
+          - DefaultEvictor
+        preevictionfilter:
+          disabled: null
+          enabled: null
+        presort:
+          disabled: null
+          enabled: null
+        sort:
+          disabled: null
+          enabled: null
+
