@@ -8,12 +8,13 @@ Receives feedback from the simulator to update metrics based on VM migrations.
 """
 
 from flask import Flask, Response, request, jsonify
-from prometheus_client import CollectorRegistry, Gauge, generate_latest
+from prometheus_client import CollectorRegistry, Counter, Gauge, generate_latest
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 import threading
 import json
 import logging
+import time
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 
@@ -70,6 +71,30 @@ vm_count_gauge = Gauge(
     registry=registry
 )
 
+# OpenShift-compatible counter metrics (node-exporter style)
+# Use 'instance' label as OpenShift expects
+cpu_seconds_counter = Counter(
+    'node_cpu_seconds_total',
+    'Total CPU seconds by mode (simulated node-exporter metric)',
+    ['instance', 'mode'],
+    registry=registry
+)
+
+cpu_pressure_counter = Counter(
+    'node_pressure_cpu_waiting_seconds_total',
+    'Total CPU pressure waiting seconds (simulated PSI metric)',
+    ['instance'],
+    registry=registry
+)
+
+# Node role label metric (kube-state-metrics style)
+node_role_gauge = Gauge(
+    'kube_node_role',
+    'Node role label (1 for worker nodes)',
+    ['node', 'role', 'instance'],
+    registry=registry
+)
+
 
 @dataclass
 class ExporterState:
@@ -82,6 +107,10 @@ class ExporterState:
     custom_api: Optional[client.CustomObjectsApi] = None
     vm_controller_running: bool = False
     vm_controller_thread: Optional[threading.Thread] = None
+    # Track last update time for each node to calculate counter increments
+    last_update_time: Dict[str, float] = field(default_factory=dict)
+    # Node configuration
+    node_cpu_cores: float = 32.0  # 32 CPU cores per KWOK node
 
     def __post_init__(self):
         """Initialize Kubernetes client and pod manager."""
@@ -190,12 +219,52 @@ class ExporterState:
             metrics = self._calculate_node_metrics_from_pods(node_name)
 
             if metrics:
-                # Update Prometheus metrics from pod data
+                # Get current time for counter calculations
+                current_time = time.time()
+                last_time = self.last_update_time.get(node_name, current_time)
+                elapsed_seconds = current_time - last_time
+
+                # Update Prometheus gauge metrics from pod data
                 cpu_usage_gauge.labels(node=node_name).set(metrics["cpu_usage"])
                 cpu_pressure_gauge.labels(node=node_name).set(metrics["cpu_pressure"])
                 memory_usage_gauge.labels(node=node_name).set(metrics["memory_usage"])
                 memory_pressure_gauge.labels(node=node_name).set(metrics["memory_pressure"])
                 vm_count_gauge.labels(node=node_name).set(metrics["vm_count"])
+
+                # Update node-exporter compatible counter metrics
+                # Only increment if we have a previous timestamp (not first scrape)
+                if node_name in self.last_update_time and elapsed_seconds > 0:
+                    # Node-exporter style: counters increment at 1 second/second
+                    # We simulate an "aggregate CPU" that represents the node's average utilization
+                    # This way rate() will return values in the 0-1 range matching the recording rules
+
+                    # Round elapsed_seconds to eliminate floating point precision errors
+                    elapsed_seconds = round(elapsed_seconds, 9)
+
+                    # Calculate busy time components first
+                    busy_seconds = round(elapsed_seconds * metrics["cpu_usage"], 9)
+                    user_seconds = round(busy_seconds * 0.6, 9)
+                    system_seconds = round(busy_seconds * 0.4, 9)
+
+                    # Idle time: ensure total sums to elapsed_seconds to avoid floating point errors
+                    # This prevents rate() from returning values > 1.0 or < 0.0
+                    idle_seconds = round(elapsed_seconds - user_seconds - system_seconds, 9)
+
+                    # Increment counters
+                    cpu_seconds_counter.labels(instance=node_name, mode='idle').inc(idle_seconds)
+                    cpu_seconds_counter.labels(instance=node_name, mode='user').inc(user_seconds)
+                    cpu_seconds_counter.labels(instance=node_name, mode='system').inc(system_seconds)
+
+                    # CPU pressure counter: pressure is already a ratio (0.0-1.0)
+                    # Increment by pressure ratio × elapsed time
+                    pressure_seconds = round(metrics["cpu_pressure"] * elapsed_seconds, 9)
+                    cpu_pressure_counter.labels(instance=node_name).inc(pressure_seconds)
+
+                # Set node role (always set, not incremented)
+                node_role_gauge.labels(node=node_name, role='worker', instance=node_name).set(1)
+
+                # Update last update time
+                self.last_update_time[node_name] = current_time
 
                 # Update internal node state if it exists
                 if node_name in self.nodes:
@@ -511,7 +580,7 @@ def metrics():
     Refreshes metrics from pods before serving.
     """
     # Discover all KWOK nodes and update metrics for them
-    nodes_updated = 0
+    updated_nodes = set()
     if state.k8s_client:
         try:
             nodes = state.k8s_client.list_node(label_selector="type=kwok")
@@ -520,17 +589,19 @@ def metrics():
                 node_name = node.metadata.name
                 logger.info(f"Updating metrics for {node_name}")
                 state.update_node_metrics(node_name)
-                nodes_updated += 1
+                updated_nodes.add(node_name)
         except Exception as e:
             logger.error(f"Failed to list KWOK nodes: {e}", exc_info=True)
     else:
         logger.warning("k8s_client not available, cannot discover KWOK nodes")
 
-    # Also refresh metrics for any nodes already in state (backward compatibility)
+    # Also refresh metrics for any nodes already in state that weren't updated above
     for node_name in list(state.nodes.keys()):
-        state.update_node_metrics(node_name)
+        if node_name not in updated_nodes:
+            state.update_node_metrics(node_name)
+            updated_nodes.add(node_name)
 
-    logger.info(f"Metrics endpoint: updated {nodes_updated} nodes")
+    logger.info(f"Metrics endpoint: updated {len(updated_nodes)} nodes")
     return Response(generate_latest(registry), mimetype='text/plain')
 
 
