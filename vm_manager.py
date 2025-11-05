@@ -185,6 +185,28 @@ class VMManager:
                 name=vm_name
             )
 
+            # Check current status
+            current_status = vm_obj.get("status", {})
+            current_phase = current_status.get("phase", "")
+            current_pod = current_status.get("podName", "")
+            current_node = current_status.get("nodeName", "")
+
+            # Check current labels
+            current_labels = vm_obj.get("metadata", {}).get("labels", {})
+            current_node_label = current_labels.get("kubevirt.io/nodeName", "")
+
+            # Check if anything actually changed
+            phase_changed = current_phase != phase
+            pod_changed = current_pod != pod_name
+            node_changed = current_node != node_name
+            # Also trigger update if node label is missing but node is assigned
+            label_missing = node_name and current_node_label != node_name
+
+            # Skip update if nothing changed and label is correct
+            if not (phase_changed or pod_changed or node_changed or label_missing):
+                logger.debug(f"Skipping VM {vm_name} status update - no changes detected")
+                return True
+
             # Update status
             if "status" not in vm_obj:
                 vm_obj["status"] = {}
@@ -205,20 +227,45 @@ class VMManager:
                 if "memory" in utilization:
                     vm_obj["status"]["memoryUtilization"] = utilization["memory"]
 
-            # Add condition for phase change
-            now = datetime.now(timezone.utc).isoformat()
-            condition = {
-                "type": f"Phase{phase}",
-                "status": "True",
-                "lastTransitionTime": now,
-                "reason": f"TransitionedTo{phase}",
-                "message": f"VM transitioned to {phase} phase"
-            }
+            # Only add condition if phase changed
+            if phase_changed:
+                now = datetime.now(timezone.utc).isoformat()
+                condition = {
+                    "type": f"Phase{phase}",
+                    "status": "True",
+                    "lastTransitionTime": now,
+                    "reason": f"TransitionedTo{phase}",
+                    "message": f"VM transitioned to {phase} phase"
+                }
 
-            if "conditions" not in vm_obj["status"]:
-                vm_obj["status"]["conditions"] = []
+                if "conditions" not in vm_obj["status"]:
+                    vm_obj["status"]["conditions"] = []
 
-            vm_obj["status"]["conditions"].append(condition)
+                vm_obj["status"]["conditions"].append(condition)
+
+            # Update kubevirt.io/nodeName label if node changed or label is missing (KubeVirt-style)
+            if node_changed or label_missing:
+                if "metadata" not in vm_obj:
+                    vm_obj["metadata"] = {}
+                if "labels" not in vm_obj["metadata"]:
+                    vm_obj["metadata"]["labels"] = {}
+
+                if node_name:
+                    # Add/update label with node name
+                    vm_obj["metadata"]["labels"]["kubevirt.io/nodeName"] = node_name
+                else:
+                    # Remove label if node is unset
+                    vm_obj["metadata"]["labels"].pop("kubevirt.io/nodeName", None)
+
+                # Patch metadata labels separately (not part of status subresource)
+                self.custom_api.patch_namespaced_custom_object(
+                    group=VM_GROUP,
+                    version=VM_VERSION,
+                    namespace=self.namespace,
+                    plural=VM_PLURAL,
+                    name=vm_name,
+                    body={"metadata": {"labels": vm_obj["metadata"]["labels"]}}
+                )
 
             # Update via status subresource
             self.custom_api.patch_namespaced_custom_object_status(
@@ -492,6 +539,27 @@ class VMManager:
 
             # Update cache
             self._utilization_cache[vm_name] = utilization
+
+            # Also update VM status to reflect new utilization values
+            try:
+                status_patch = {
+                    "status": {
+                        "cpuUtilization": cpu_util,
+                        "memoryUtilization": memory_util
+                    }
+                }
+                self.custom_api.patch_namespaced_custom_object_status(
+                    group=VM_GROUP,
+                    version=VM_VERSION,
+                    namespace=self.namespace,
+                    plural=VM_PLURAL,
+                    name=vm_name,
+                    body=status_patch
+                )
+            except ApiException as status_e:
+                logger.warning(f"Failed to update VM {vm_name} status utilization: {status_e}")
+                # Don't fail the whole operation if status update fails
+
             logger.info(f"Synced utilization for VM {vm_name} -> pod {pod_name}: "
                        f"cpu={cpu_util}, memory={memory_util}")
             return True

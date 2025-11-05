@@ -172,6 +172,8 @@ class PodManager:
                     )
                 )
             ],
+            # Ensure pods are ONLY scheduled to kwok nodes
+            node_selector={"type": "kwok"},
             tolerations=[
                 client.V1Toleration(
                     key="kwok.x-k8s.io/node",

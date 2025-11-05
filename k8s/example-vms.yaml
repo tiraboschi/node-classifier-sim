@@ -108,7 +108,7 @@ spec:
 apiVersion: simulation.node-classifier.io/v1alpha1
 kind: VirtualMachine
 metadata:
-  name: vm-idle-1
+  name: vm-idle-01
   namespace: default
   annotations:
     description: "Idle VM: 1 core, 1Gi memory, minimal utilization"
@@ -125,7 +125,7 @@ spec:
 apiVersion: simulation.node-classifier.io/v1alpha1
 kind: VirtualMachine
 metadata:
-  name: vm-idle-2
+  name: vm-idle-02
   namespace: default
   annotations:
     description: "Idle VM: 2 cores, 2Gi memory, low utilization"
@@ -142,7 +142,7 @@ spec:
 apiVersion: simulation.node-classifier.io/v1alpha1
 kind: VirtualMachine
 metadata:
-  name: vm-idle-3
+  name: vm-idle-03
   namespace: default
   annotations:
     description: "Idle VM: 1 core, 4Gi memory, low utilization"
@@ -159,7 +159,7 @@ spec:
 apiVersion: simulation.node-classifier.io/v1alpha1
 kind: VirtualMachine
 metadata:
-  name: vm-idle-4
+  name: vm-idle-04
   namespace: default
   annotations:
     description: "Idle VM: 4 cores, 4Gi memory, low utilization"
@@ -176,7 +176,7 @@ spec:
 apiVersion: simulation.node-classifier.io/v1alpha1
 kind: VirtualMachine
 metadata:
-  name: vm-idle-5
+  name: vm-idle-05
   namespace: default
   annotations:
     description: "Idle VM: 2 cores, 8Gi memory, low utilization"
@@ -193,7 +193,7 @@ spec:
 apiVersion: simulation.node-classifier.io/v1alpha1
 kind: VirtualMachine
 metadata:
-  name: vm-idle-6
+  name: vm-idle-06
   namespace: default
   annotations:
     description: "Idle VM: 3 cores, 6Gi memory, low utilization"
@@ -210,7 +210,7 @@ spec:
 apiVersion: simulation.node-classifier.io/v1alpha1
 kind: VirtualMachine
 metadata:
-  name: vm-idle-7
+  name: vm-idle-07
   namespace: default
   annotations:
     description: "Idle VM: 1 core, 2Gi memory, low utilization"
@@ -227,7 +227,7 @@ spec:
 apiVersion: simulation.node-classifier.io/v1alpha1
 kind: VirtualMachine
 metadata:
-  name: vm-idle-8
+  name: vm-idle-08
   namespace: default
   annotations:
     description: "Idle VM: 2 cores, 3Gi memory, low utilization"
@@ -244,7 +244,7 @@ spec:
 apiVersion: simulation.node-classifier.io/v1alpha1
 kind: VirtualMachine
 metadata:
-  name: vm-idle-9
+  name: vm-idle-09
   namespace: default
   annotations:
     description: "Idle VM: 4 cores, 8Gi memory, low utilization"
@@ -272,4 +272,582 @@ spec:
   utilization:
     cpu: "0.19"      # 19% CPU utilization
     memory: "0.65"   # 65% memory utilization
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-11
+  namespace: default
+  annotations:
+    description: "Idle VM: 2 cores, 3Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "2"
+    memory: "3Gi"
+  utilization:
+    cpu: "0.10"
+    memory: "0.55"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-12
+  namespace: default
+  annotations:
+    description: "Idle VM: 1 core, 1Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "1"
+    memory: "1Gi"
+  utilization:
+    cpu: "0.11"
+    memory: "0.60"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-13
+  namespace: default
+  annotations:
+    description: "Idle VM: 3 cores, 4Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "3"
+    memory: "4Gi"
+  utilization:
+    cpu: "0.12"
+    memory: "0.65"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-14
+  namespace: default
+  annotations:
+    description: "Idle VM: 2 cores, 2Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "2"
+    memory: "2Gi"
+  utilization:
+    cpu: "0.13"
+    memory: "0.70"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-15
+  namespace: default
+  annotations:
+    description: "Idle VM: 4 cores, 6Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "4"
+    memory: "6Gi"
+  utilization:
+    cpu: "0.14"
+    memory: "0.75"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-16
+  namespace: default
+  annotations:
+    description: "Idle VM: 1 core, 2Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "1"
+    memory: "2Gi"
+  utilization:
+    cpu: "0.15"
+    memory: "0.50"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-17
+  namespace: default
+  annotations:
+    description: "Idle VM: 2 cores, 4Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "2"
+    memory: "4Gi"
+  utilization:
+    cpu: "0.16"
+    memory: "0.55"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-18
+  namespace: default
+  annotations:
+    description: "Idle VM: 3 cores, 3Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "3"
+    memory: "3Gi"
+  utilization:
+    cpu: "0.17"
+    memory: "0.60"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-19
+  namespace: default
+  annotations:
+    description: "Idle VM: 1 core, 1Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "1"
+    memory: "1Gi"
+  utilization:
+    cpu: "0.18"
+    memory: "0.65"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-20
+  namespace: default
+  annotations:
+    description: "Idle VM: 4 cores, 8Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "4"
+    memory: "8Gi"
+  utilization:
+    cpu: "0.19"
+    memory: "0.70"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-21
+  namespace: default
+  annotations:
+    description: "Idle VM: 2 cores, 2Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "2"
+    memory: "2Gi"
+  utilization:
+    cpu: "0.20"
+    memory: "0.75"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-22
+  namespace: default
+  annotations:
+    description: "Idle VM: 1 core, 3Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "1"
+    memory: "3Gi"
+  utilization:
+    cpu: "0.10"
+    memory: "0.50"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-23
+  namespace: default
+  annotations:
+    description: "Idle VM: 3 cores, 6Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "3"
+    memory: "6Gi"
+  utilization:
+    cpu: "0.11"
+    memory: "0.55"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-24
+  namespace: default
+  annotations:
+    description: "Idle VM: 2 cores, 4Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "2"
+    memory: "4Gi"
+  utilization:
+    cpu: "0.12"
+    memory: "0.60"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-25
+  namespace: default
+  annotations:
+    description: "Idle VM: 4 cores, 4Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "4"
+    memory: "4Gi"
+  utilization:
+    cpu: "0.13"
+    memory: "0.65"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-26
+  namespace: default
+  annotations:
+    description: "Idle VM: 1 core, 2Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "1"
+    memory: "2Gi"
+  utilization:
+    cpu: "0.14"
+    memory: "0.70"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-27
+  namespace: default
+  annotations:
+    description: "Idle VM: 2 cores, 3Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "2"
+    memory: "3Gi"
+  utilization:
+    cpu: "0.15"
+    memory: "0.75"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-28
+  namespace: default
+  annotations:
+    description: "Idle VM: 3 cores, 4Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "3"
+    memory: "4Gi"
+  utilization:
+    cpu: "0.16"
+    memory: "0.50"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-29
+  namespace: default
+  annotations:
+    description: "Idle VM: 1 core, 1Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "1"
+    memory: "1Gi"
+  utilization:
+    cpu: "0.17"
+    memory: "0.55"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-30
+  namespace: default
+  annotations:
+    description: "Idle VM: 4 cores, 6Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "4"
+    memory: "6Gi"
+  utilization:
+    cpu: "0.18"
+    memory: "0.60"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-31
+  namespace: default
+  annotations:
+    description: "Idle VM: 2 cores, 2Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "2"
+    memory: "2Gi"
+  utilization:
+    cpu: "0.19"
+    memory: "0.65"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-32
+  namespace: default
+  annotations:
+    description: "Idle VM: 1 core, 3Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "1"
+    memory: "3Gi"
+  utilization:
+    cpu: "0.20"
+    memory: "0.70"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-33
+  namespace: default
+  annotations:
+    description: "Idle VM: 3 cores, 8Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "3"
+    memory: "8Gi"
+  utilization:
+    cpu: "0.10"
+    memory: "0.75"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-34
+  namespace: default
+  annotations:
+    description: "Idle VM: 2 cores, 4Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "2"
+    memory: "4Gi"
+  utilization:
+    cpu: "0.11"
+    memory: "0.50"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-35
+  namespace: default
+  annotations:
+    description: "Idle VM: 4 cores, 4Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "4"
+    memory: "4Gi"
+  utilization:
+    cpu: "0.12"
+    memory: "0.55"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-36
+  namespace: default
+  annotations:
+    description: "Idle VM: 1 core, 2Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "1"
+    memory: "2Gi"
+  utilization:
+    cpu: "0.13"
+    memory: "0.60"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-37
+  namespace: default
+  annotations:
+    description: "Idle VM: 2 cores, 3Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "2"
+    memory: "3Gi"
+  utilization:
+    cpu: "0.14"
+    memory: "0.65"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-38
+  namespace: default
+  annotations:
+    description: "Idle VM: 3 cores, 6Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "3"
+    memory: "6Gi"
+  utilization:
+    cpu: "0.15"
+    memory: "0.70"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-39
+  namespace: default
+  annotations:
+    description: "Idle VM: 1 core, 1Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "1"
+    memory: "1Gi"
+  utilization:
+    cpu: "0.16"
+    memory: "0.75"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-40
+  namespace: default
+  annotations:
+    description: "Idle VM: 4 cores, 8Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "4"
+    memory: "8Gi"
+  utilization:
+    cpu: "0.17"
+    memory: "0.50"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-41
+  namespace: default
+  annotations:
+    description: "Idle VM: 2 cores, 2Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "2"
+    memory: "2Gi"
+  utilization:
+    cpu: "0.18"
+    memory: "0.55"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-42
+  namespace: default
+  annotations:
+    description: "Idle VM: 1 core, 4Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "1"
+    memory: "4Gi"
+  utilization:
+    cpu: "0.19"
+    memory: "0.60"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-43
+  namespace: default
+  annotations:
+    description: "Idle VM: 3 cores, 3Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "3"
+    memory: "3Gi"
+  utilization:
+    cpu: "0.20"
+    memory: "0.65"
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-44
+  namespace: default
+  annotations:
+    description: "Idle VM: 2 cores, 6Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "2"
+    memory: "6Gi"
+  utilization:
+    cpu: "0.10"
+    memory: "0.70"
   running: true
