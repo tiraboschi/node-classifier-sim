@@ -119,7 +119,7 @@ class PodManager:
         return f"virt-launcher-{vm_id}-{suffix}"
 
     def _create_pod_spec(self, vm: VM, node_name: Optional[str] = None,
-                         exclude_node: Optional[str] = None) -> client.V1Pod:
+                         exclude_node: Optional[str] = None, vm_cr_uid: Optional[str] = None) -> client.V1Pod:
         """
         Create a pod specification for a VM.
 
@@ -127,6 +127,7 @@ class PodManager:
             vm: VM object
             node_name: Optional node name for direct assignment (usually None, let scheduler decide)
             exclude_node: Optional node name to exclude via anti-affinity (for live migration)
+            vm_cr_uid: Optional UID of the VirtualMachine CR (for ownerReference)
 
         Returns:
             V1Pod specification
@@ -209,6 +210,20 @@ class PodManager:
         if node_name:
             pod_spec.node_name = node_name
 
+        # Build ownerReference if VM CR UID is provided (makes pod "owned" not "naked")
+        owner_references = None
+        if vm_cr_uid:
+            owner_references = [
+                client.V1OwnerReference(
+                    api_version="simulation.node-classifier.io/v1alpha1",
+                    kind="VirtualMachine",
+                    name=vm.id,
+                    uid=vm_cr_uid,
+                    controller=True,
+                    block_owner_deletion=True
+                )
+            ]
+
         pod = client.V1Pod(
             api_version="v1",
             kind="Pod",
@@ -223,7 +238,8 @@ class PodManager:
                 annotations=annotations,
                 # Add finalizer to protect against eviction (like KubeVirt)
                 # This prevents immediate deletion and allows webhook to intercept
-                finalizers=["kubevirt.io/migration-protection"]
+                finalizers=["kubevirt.io/migration-protection"],
+                owner_references=owner_references
             ),
             spec=pod_spec
         )
@@ -249,8 +265,30 @@ class PodManager:
                 self.vm_manager.create_vm(vm)
                 self.vm_manager.update_vm_status(vm.id, "Pending")
 
-            # Create the pod
-            pod_spec = self._create_pod_spec(vm, node_name)
+            # Get VM CR UID for ownerReference (makes pod "owned" not "naked")
+            # This works whether create_vm_crs is True or False
+            vm_cr_uid = None
+            try:
+                from kubernetes import client as k8s_client
+                custom_api = k8s_client.CustomObjectsApi()
+
+                vm_cr = custom_api.get_namespaced_custom_object(
+                    group="simulation.node-classifier.io",
+                    version="v1alpha1",
+                    namespace=self.namespace,
+                    plural="virtualmachines",
+                    name=vm.id
+                )
+                vm_cr_uid = vm_cr.get("metadata", {}).get("uid")
+                if vm_cr_uid:
+                    logger.info(f"Got VM CR UID {vm_cr_uid} for pod ownerReference")
+                else:
+                    logger.warning(f"VM CR {vm.id} has no UID!")
+            except Exception as e:
+                logger.warning(f"Could not get VM CR UID for {vm.id}: {e}")
+
+            # Create the pod (with ownerReference if VM CR UID was obtained)
+            pod_spec = self._create_pod_spec(vm, node_name, vm_cr_uid=vm_cr_uid)
             created_pod = self.v1.create_namespaced_pod(
                 namespace=self.namespace,
                 body=pod_spec
@@ -434,11 +472,29 @@ class PodManager:
         logger.info(f"   Creating target pod with anti-affinity to node {from_node}")
 
         try:
+            # Get VM CR UID for ownerReference
+            vm_cr_uid = None
+            try:
+                from kubernetes import client as k8s_client
+                custom_api = k8s_client.CustomObjectsApi()
+
+                vm_cr = custom_api.get_namespaced_custom_object(
+                    group="simulation.node-classifier.io",
+                    version="v1alpha1",
+                    namespace=self.namespace,
+                    plural="virtualmachines",
+                    name=vm.id
+                )
+                vm_cr_uid = vm_cr.get("metadata", {}).get("uid")
+            except Exception as e:
+                logger.warning(f"Could not get VM CR UID for migration target pod: {e}")
+
             # Create pod spec with anti-affinity to source node
             target_pod_spec = self._create_pod_spec(
                 vm,
                 node_name=to_node,  # None if scheduler should decide
-                exclude_node=from_node  # Anti-affinity: don't schedule on source node
+                exclude_node=from_node,  # Anti-affinity: don't schedule on source node
+                vm_cr_uid=vm_cr_uid
             )
 
             created_pod = self.v1.create_namespaced_pod(
@@ -767,7 +823,24 @@ class PodManager:
         # Create target pod with anti-affinity
         logger.info(f"   Creating target pod with anti-affinity to node {from_node}")
         try:
-            target_pod_spec = self._create_pod_spec(vm, node_name=to_node, exclude_node=from_node)
+            # Get VM CR UID for ownerReference
+            vm_cr_uid = None
+            try:
+                from kubernetes import client as k8s_client
+                custom_api = k8s_client.CustomObjectsApi()
+
+                vm_cr = custom_api.get_namespaced_custom_object(
+                    group="simulation.node-classifier.io",
+                    version="v1alpha1",
+                    namespace=self.namespace,
+                    plural="virtualmachines",
+                    name=vm.id
+                )
+                vm_cr_uid = vm_cr.get("metadata", {}).get("uid")
+            except Exception as e:
+                logger.warning(f"Could not get VM CR UID for eviction migration target pod: {e}")
+
+            target_pod_spec = self._create_pod_spec(vm, node_name=to_node, exclude_node=from_node, vm_cr_uid=vm_cr_uid)
             created_pod = self.v1.create_namespaced_pod(namespace=self.namespace, body=target_pod_spec)
             target_pod_name = created_pod.metadata.name
             logger.info(f"   Target pod created: {target_pod_name}")

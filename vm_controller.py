@@ -63,12 +63,12 @@ class VMController:
             self.k8s_client = client.CoreV1Api()
             self.custom_api = client.CustomObjectsApi()
 
-            # Initialize managers (without migration controller - that's in eviction-webhook)
+            # Initialize managers (migration controller runs in eviction-webhook)
             self.pod_manager = PodManager(
                 namespace=namespace,
                 use_in_cluster_config=use_in_cluster_config,
                 create_vm_crs=False,  # VM CRs already exist
-                enable_migration_controller=False  # Migration handled by eviction-webhook
+                enable_migration_controller=False  # Migration controller runs in eviction-webhook
             )
 
             self.vm_manager = VMManager(
@@ -89,6 +89,23 @@ class VMController:
             return True
         except ApiException:
             return False
+
+    def _get_vm_pods(self, vm_name: str) -> list:
+        """Get all pods for a VM (by label), excluding those being deleted."""
+        try:
+            pods = self.k8s_client.list_namespaced_pod(
+                namespace=self.namespace,
+                label_selector=f"kubevirt.io/domain={vm_name}"
+            )
+            # Filter out pods that are being deleted (have deletionTimestamp)
+            active_pods = [
+                pod for pod in pods.items
+                if pod.metadata.deletion_timestamp is None
+            ]
+            return active_pods
+        except ApiException as e:
+            logger.error(f"Failed to list pods for VM {vm_name}: {e}")
+            return []
 
     def _update_vm_status_from_pod(self, vm_id: str, pod_name: str):
         """Update VM status based on pod status."""
@@ -165,11 +182,13 @@ class VMController:
                     memory_utilization=memory_util
                 )
 
-                # Check if pod exists for this VM
-                pod_name = status.get("podName", "")
+                # Check if ANY pod exists for this VM (by label, not just status.podName)
+                # This prevents duplicate pod creation during migrations and status conflicts
+                active_pods = self._get_vm_pods(vm_name)
+                logger.info(f"VM {vm_name}: found {len(active_pods)} active pods")
 
-                if not pod_name or not self._pod_exists(pod_name):
-                    # No pod or pod doesn't exist - create one
+                if len(active_pods) == 0:
+                    # No active pods - create one
                     logger.info(f"Creating missing pod for VM {vm_name}")
                     vm.scheduled_node = ""  # Let scheduler decide
                     created_pod_name = self.pod_manager.create_pod(vm)
@@ -177,9 +196,20 @@ class VMController:
                         vm.pod_name = created_pod_name
                         # Update VM status to Scheduling
                         self.vm_manager.update_vm_status(vm_name, "Scheduling", created_pod_name)
-                else:
-                    # Pod exists - just update VM status from pod
+                elif len(active_pods) == 1:
+                    # Exactly one pod - update VM status from it
+                    pod = active_pods[0]
+                    pod_name = pod.metadata.name
                     self._update_vm_status_from_pod(vm_name, pod_name)
+                else:
+                    # Multiple pods - this shouldn't happen, log warning
+                    logger.warning(f"VM {vm_name} has {len(active_pods)} active pods (expected 1):")
+                    for pod in active_pods:
+                        logger.warning(f"  - {pod.metadata.name} on {pod.spec.node_name} ({pod.status.phase})")
+                    # Update status from the newest pod (by creation timestamp)
+                    newest_pod = max(active_pods, key=lambda p: p.metadata.creation_timestamp)
+                    logger.warning(f"  Using newest pod: {newest_pod.metadata.name}")
+                    self._update_vm_status_from_pod(vm_name, newest_pod.metadata.name)
 
         except ApiException as e:
             logger.error(f"Failed to sync VM CRs to pods: {e}")
