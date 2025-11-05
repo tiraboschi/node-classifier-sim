@@ -580,7 +580,10 @@ EOF
 
     kubectl patch mutatingwebhookconfiguration eviction-webhook \
         --type='json' \
-        -p="[{'op': 'replace', 'path': '/webhooks/0/clientConfig/caBundle', 'value':'${CA_BUNDLE}'}]"
+        -p="[
+          {'op': 'replace', 'path': '/webhooks/0/clientConfig/caBundle', 'value':'${CA_BUNDLE}'},
+          {'op': 'replace', 'path': '/webhooks/1/clientConfig/caBundle', 'value':'${CA_BUNDLE}'}
+        ]"
 
     # Cleanup
     rm -rf "$WEBHOOK_TLS_DIR"
