@@ -1,0 +1,176 @@
+---
+# ServiceAccount for the eviction webhook
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eviction-webhook
+  namespace: monitoring
+
+---
+# ClusterRole with permissions to manage pods and VMs
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: eviction-webhook
+rules:
+# Manage pods (read, patch finalizers, delete)
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch", "create", "delete", "patch"]
+# Manage VirtualMachine CRs (both API groups)
+- apiGroups: ["simulation.node-classifier.io", "kubevirt.io"]
+  resources: ["virtualmachines"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Update VirtualMachine status (both API groups)
+- apiGroups: ["simulation.node-classifier.io", "kubevirt.io"]
+  resources: ["virtualmachines/status"]
+  verbs: ["get", "update", "patch"]
+
+---
+# ClusterRoleBinding for the webhook
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: eviction-webhook
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eviction-webhook
+subjects:
+- kind: ServiceAccount
+  name: eviction-webhook
+  namespace: monitoring
+
+---
+# Service for the webhook
+apiVersion: v1
+kind: Service
+metadata:
+  name: eviction-webhook
+  namespace: monitoring
+  labels:
+    app: eviction-webhook
+spec:
+  ports:
+  - name: https
+    port: 443
+    targetPort: 8443
+    protocol: TCP
+  selector:
+    app: eviction-webhook
+
+---
+# Deployment for the eviction webhook
+# Note: eviction-webhook-code ConfigMap is created by setup script
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eviction-webhook
+  namespace: monitoring
+  labels:
+    app: eviction-webhook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: eviction-webhook
+  template:
+    metadata:
+      labels:
+        app: eviction-webhook
+    spec:
+      serviceAccountName: eviction-webhook
+      containers:
+      - name: webhook
+        image: python:3.11-slim
+        command:
+        - /bin/bash
+        - -c
+        - |
+          pip install --no-cache-dir flask kubernetes && \
+          cd /app && \
+          python eviction_webhook.py --port 8443 --host 0.0.0.0 --in-cluster \
+            --cert /etc/webhook/certs/tls.crt --key /etc/webhook/certs/tls.key
+        ports:
+        - name: https
+          containerPort: 8443
+          protocol: TCP
+        volumeMounts:
+        - name: webhook-code
+          mountPath: /app
+        - name: webhook-certs
+          mountPath: /etc/webhook/certs
+          readOnly: true
+        - name: shared-code
+          mountPath: /app/shared
+          readOnly: true
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: PYTHONPATH
+          value: "/app:/app/shared"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: webhook-code
+        configMap:
+          name: eviction-webhook-code
+      - name: shared-code
+        configMap:
+          name: metrics-exporter-code
+      - name: webhook-certs
+        secret:
+          secretName: eviction-webhook-certs
+
+---
+# MutatingWebhookConfiguration
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: eviction-webhook
+webhooks:
+- name: eviction.kubevirt.io
+  admissionReviewVersions: ["v1", "v1beta1"]
+  clientConfig:
+    service:
+      name: eviction-webhook
+      namespace: monitoring
+      path: "/mutate"
+    caBundle: "" # Will be populated by cert-manager or manually
+  failurePolicy: Fail  # Fail closed - if webhook is down, don't allow evictions
+  matchPolicy: Equivalent
+  namespaceSelector:
+    matchExpressions:
+    - key: kubernetes.io/metadata.name
+      operator: NotIn
+      values:
+      - kube-system
+      - kube-public
+  objectSelector:
+    matchLabels:
+      app: virt-launcher  # Only intercept virt-launcher pods
+  rules:
+  - apiGroups: [""]
+    apiVersions: ["v1"]
+    operations: ["DELETE"]
+    resources: ["pods"]
+    scope: "Namespaced"
+  - apiGroups: [""]
+    apiVersions: ["v1"]
+    operations: ["CREATE"]
+    resources: ["pods/eviction"]
+    scope: "Namespaced"
+  sideEffects: None
+  timeoutSeconds: 10

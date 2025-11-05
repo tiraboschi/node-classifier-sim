@@ -1,0 +1,84 @@
+---
+# ServiceAccount for the VM controller
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vm-controller
+  namespace: monitoring
+
+---
+# ClusterRole with permissions to manage pods and VMs
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vm-controller
+rules:
+# Manage pods (read, create, delete, patch)
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch", "create", "delete", "patch"]
+# Manage VirtualMachine CRs
+- apiGroups: ["simulation.node-classifier.io"]
+  resources: ["virtualmachines"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Update VirtualMachine status
+- apiGroups: ["simulation.node-classifier.io"]
+  resources: ["virtualmachines/status"]
+  verbs: ["get", "update", "patch"]
+
+---
+# ClusterRoleBinding for the VM controller
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vm-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vm-controller
+subjects:
+- kind: ServiceAccount
+  name: vm-controller
+  namespace: monitoring
+
+---
+# Deployment for the VM controller
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vm-controller
+  namespace: monitoring
+  labels:
+    app: vm-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vm-controller
+  template:
+    metadata:
+      labels:
+        app: vm-controller
+    spec:
+      serviceAccountName: vm-controller
+      containers:
+      - name: controller
+        image: python:3.11-slim
+        command:
+        - /bin/bash
+        - -c
+        - |
+          pip install --no-cache-dir kubernetes && \
+          cd /app && \
+          python vm_controller.py --namespace default --in-cluster
+        volumeMounts:
+        - name: controller-code
+          mountPath: /app
+          readOnly: true
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+      volumes:
+      - name: controller-code
+        configMap:
+          name: vm-controller-code
