@@ -246,7 +246,7 @@ class PodManager:
 
         return pod
 
-    def create_pod(self, vm: VM, node_name: Optional[str] = None) -> Optional[str]:
+    def create_pod(self, vm: VM, node_name: Optional[str] = None, exclude_node: Optional[str] = None) -> Optional[str]:
         """
         Create a virt-launcher pod for a VM.
         Also creates a VirtualMachine CR if vm_manager is available.
@@ -255,6 +255,7 @@ class PodManager:
         Args:
             vm: VM object
             node_name: Optional node name for direct assignment (usually None)
+            exclude_node: Optional node name to exclude via anti-affinity (for evacuation)
 
         Returns:
             Pod name if successful, None otherwise
@@ -288,7 +289,7 @@ class PodManager:
                 logger.warning(f"Could not get VM CR UID for {vm.id}: {e}")
 
             # Create the pod (with ownerReference if VM CR UID was obtained)
-            pod_spec = self._create_pod_spec(vm, node_name, vm_cr_uid=vm_cr_uid)
+            pod_spec = self._create_pod_spec(vm, node_name, exclude_node=exclude_node, vm_cr_uid=vm_cr_uid)
             created_pod = self.v1.create_namespaced_pod(
                 namespace=self.namespace,
                 body=pod_spec
@@ -981,9 +982,14 @@ class PodManager:
             try:
                 pod = self.v1.read_namespaced_pod(name=pod_name, namespace=self.namespace)
             except ApiException as e:
-                logger.error(f"Cannot read pod {pod_name}: {e}")
-                self._clear_vm_evacuation_marker(vm_id)
-                return
+                if e.status == 404:
+                    logger.info(f"Pod {pod_name} not found - will be recreated by VM controller with anti-affinity")
+                    # Don't clear evacuationNodeName - let VM controller see it and create pod with anti-affinity
+                    return
+                else:
+                    logger.error(f"Cannot read pod {pod_name}: {e}")
+                    self._clear_vm_evacuation_marker(vm_id)
+                    return
 
             # Extract VM resource info from pod annotations
             annotations = pod.metadata.annotations or {}
