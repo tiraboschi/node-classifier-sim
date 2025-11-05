@@ -90,9 +90,12 @@ def mutate_webhook():
     """
     Mutating webhook endpoint for pod evictions.
 
-    This intercepts DELETE requests for virt-launcher pods and denies deletion
-    if the pod has the migration-protection finalizer. The migration controller
-    in pod_manager.py watches for deletionTimestamp and handles the actual migration.
+    This intercepts both:
+    - DELETE requests for virt-launcher pods (direct pod deletion)
+    - CREATE requests for pods/eviction (Eviction API used by descheduler)
+
+    Denies eviction/deletion if the pod has the migration-protection finalizer.
+    The migration controller in pod_manager.py watches for deletionTimestamp and handles the actual migration.
     """
     try:
         admission_review = request.get_json()
@@ -102,18 +105,45 @@ def mutate_webhook():
         uid = req.get("uid")
         namespace = req.get("namespace", "default")
         operation = req.get("operation", "")
+        resource = req.get("resource", {}).get("resource", "")
 
-        # Get object being deleted
-        old_object = req.get("oldObject", {})
-        metadata = old_object.get("metadata", {})
-        pod_name = metadata.get("name", "")
-        labels = metadata.get("labels", {})
-        finalizers = metadata.get("finalizers", [])
+        # Get pod metadata based on operation type
+        # For DELETE: use oldObject
+        # For CREATE on pods/eviction: use object (the Eviction request contains pod info)
+        if operation == "DELETE":
+            pod_obj = req.get("oldObject", {})
+        elif operation == "CREATE" and resource == "pods/eviction":
+            # For Eviction API, the pod name is in the eviction object
+            eviction_obj = req.get("object", {})
+            eviction_metadata = eviction_obj.get("metadata", {})
+            pod_name = eviction_metadata.get("name", "")
 
-        logger.info(f"Webhook received {operation} request for pod {pod_name} in namespace {namespace}")
-
-        # Only intercept DELETE operations
-        if operation != "DELETE":
+            # We need to read the actual pod to get its labels and finalizers
+            try:
+                pod = state.k8s_client.read_namespaced_pod(name=pod_name, namespace=namespace)
+                pod_obj = {
+                    "metadata": {
+                        "name": pod.metadata.name,
+                        "labels": pod.metadata.labels or {},
+                        "finalizers": pod.metadata.finalizers or []
+                    },
+                    "spec": {
+                        "nodeName": pod.spec.node_name
+                    }
+                }
+            except ApiException as e:
+                logger.warning(f"Cannot read pod {pod_name} for eviction request: {e}")
+                # Allow eviction if we can't read the pod (it might be already deleted)
+                return jsonify({
+                    "apiVersion": "admission.k8s.io/v1",
+                    "kind": "AdmissionReview",
+                    "response": {
+                        "uid": uid,
+                        "allowed": True
+                    }
+                })
+        else:
+            # Not a DELETE or CREATE on pods/eviction - allow
             return jsonify({
                 "apiVersion": "admission.k8s.io/v1",
                 "kind": "AdmissionReview",
@@ -122,6 +152,15 @@ def mutate_webhook():
                     "allowed": True
                 }
             })
+
+        metadata = pod_obj.get("metadata", {})
+        pod_name = metadata.get("name", "")
+        labels = metadata.get("labels", {})
+        finalizers = metadata.get("finalizers", [])
+
+        logger.info(f"Webhook received {operation} request for pod {pod_name} in namespace {namespace} (resource: {resource})")
+        logger.info(f"   oldObject metadata keys: {list(metadata.keys())}")
+        logger.info(f"   oldObject finalizers: {finalizers}")
 
         # Check if this is a virt-launcher pod
         if not is_virt_launcher_pod(pod_name, labels):
@@ -149,16 +188,72 @@ def mutate_webhook():
             })
 
         # Check current pod state from API (not oldObject which may be stale)
-        try:
-            current_pod = state.k8s_client.read_namespaced_pod(name=pod_name, namespace=namespace)
-            current_finalizers = current_pod.metadata.finalizers or []
-        except ApiException as e:
-            logger.warning(f"Cannot read current pod state for {pod_name}: {e}, using oldObject")
+        # For CREATE on pods/eviction, we already read the pod, so use that
+        # For DELETE, we need to read the current state
+        if operation == "CREATE" and resource == "pods/eviction":
+            # We already have current state in pod_obj
             current_finalizers = finalizers
+            pod_node = pod_obj.get("spec", {}).get("nodeName")
+        else:
+            # DELETE operation - read current pod state
+            try:
+                current_pod = state.k8s_client.read_namespaced_pod(name=pod_name, namespace=namespace)
+                current_finalizers = current_pod.metadata.finalizers or []
+                pod_node = current_pod.spec.node_name if hasattr(current_pod, 'spec') and current_pod.spec else None
+            except ApiException as e:
+                logger.warning(f"Cannot read current pod state for {pod_name}: {e}")
+                # IMPORTANT: oldObject in DELETE requests doesn't include finalizers!
+                # If we can't read the pod AND oldObject has no 'finalizers' key, deny deletion
+                # to be safe. Only allow if oldObject explicitly shows finalizers=[]
+                if 'finalizers' not in metadata:
+                    logger.info(f"🛑 oldObject missing 'finalizers' field, denying DELETE to be safe")
+                    logger.info(f"   (Kubernetes doesn't send finalizers in oldObject for DELETE)")
+                    # Deny and mark for evacuation to trigger migration
+                    try:
+                        # Get VM ID
+                        vm_id_temp = get_vm_from_pod(pod_name, labels)
+                        if vm_id_temp:
+                            # Mark VM for evacuation
+                            vm_obj = state.custom_api.get_namespaced_custom_object(
+                                group="simulation.node-classifier.io",
+                                version="v1alpha1",
+                                namespace=namespace,
+                                plural="virtualmachines",
+                                name=vm_id_temp
+                            )
+                            pod_node_temp = pod_obj.get("spec", {}).get("nodeName")
+                            if pod_node_temp and "status" in vm_obj:
+                                vm_obj["status"]["evacuationNodeName"] = pod_node_temp
+                                state.custom_api.patch_namespaced_custom_object_status(
+                                    group="simulation.node-classifier.io",
+                                    version="v1alpha1",
+                                    namespace=namespace,
+                                    plural="virtualmachines",
+                                    name=vm_id_temp,
+                                    body=vm_obj
+                                )
+                                logger.info(f"   Marked VM {vm_id_temp} for evacuation from {pod_node_temp}")
+                    except Exception as mark_error:
+                        logger.warning(f"Could not mark VM for evacuation: {mark_error}")
 
-        # If finalizer is removed, migration is complete - allow deletion
+                    return jsonify({
+                        "apiVersion": "admission.k8s.io/v1",
+                        "kind": "AdmissionReview",
+                        "response": {
+                            "uid": uid,
+                            "allowed": False,
+                            "status": {
+                                "code": 403,
+                                "message": f"Pod has migration finalizer (inferred from missing oldObject data)"
+                            }
+                        }
+                    })
+                current_finalizers = finalizers
+                pod_node = pod_obj.get("spec", {}).get("nodeName")
+
+        # If finalizer is removed, migration is complete - allow deletion/eviction
         if "kubevirt.io/migration-protection" not in current_finalizers:
-            logger.info(f"Pod {pod_name} has no finalizer (migration complete), allowing deletion")
+            logger.info(f"Pod {pod_name} has no finalizer (migration complete), allowing {operation}")
             return jsonify({
                 "apiVersion": "admission.k8s.io/v1",
                 "kind": "AdmissionReview",
@@ -167,9 +262,6 @@ def mutate_webhook():
                     "allowed": True
                 }
             })
-
-        # Get pod's node (from the pod we already read)
-        pod_node = current_pod.spec.node_name if hasattr(current_pod, 'spec') and current_pod.spec else None
 
         # Check if this is the target pod (KubeVirt-style check)
         # Query the VM CR to get the VM's current node

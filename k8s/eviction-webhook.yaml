@@ -136,12 +136,16 @@ spec:
 
 ---
 # MutatingWebhookConfiguration
+# Split into two webhooks:
+# 1. pods-delete: intercepts DELETE on pods (with objectSelector for virt-launcher pods)
+# 2. pods-eviction: intercepts CREATE on pods/eviction (no objectSelector, filtering done in webhook code)
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
   name: eviction-webhook
 webhooks:
-- name: eviction.kubevirt.io
+# Webhook 1: Direct pod deletion (with objectSelector)
+- name: pods-delete.eviction.kubevirt.io
   admissionReviewVersions: ["v1", "v1beta1"]
   clientConfig:
     service:
@@ -149,7 +153,7 @@ webhooks:
       namespace: monitoring
       path: "/mutate"
     caBundle: "" # Will be populated by cert-manager or manually
-  failurePolicy: Fail  # Fail closed - if webhook is down, don't allow evictions
+  failurePolicy: Fail  # Fail closed - if webhook is down, don't allow deletions
   matchPolicy: Equivalent
   namespaceSelector:
     matchExpressions:
@@ -167,6 +171,30 @@ webhooks:
     operations: ["DELETE"]
     resources: ["pods"]
     scope: "Namespaced"
+  sideEffects: None
+  timeoutSeconds: 10
+
+# Webhook 2: Eviction API (no objectSelector - filtering in webhook code)
+- name: pods-eviction.eviction.kubevirt.io
+  admissionReviewVersions: ["v1", "v1beta1"]
+  clientConfig:
+    service:
+      name: eviction-webhook
+      namespace: monitoring
+      path: "/mutate"
+    caBundle: "" # Will be populated by cert-manager or manually
+  failurePolicy: Fail  # Fail closed - if webhook is down, don't allow evictions
+  matchPolicy: Equivalent
+  namespaceSelector:
+    matchExpressions:
+    - key: kubernetes.io/metadata.name
+      operator: NotIn
+      values:
+      - kube-system
+      - kube-public
+  # No objectSelector here - Eviction objects don't have pod labels
+  # Filtering is done in the webhook code by reading the actual pod
+  rules:
   - apiGroups: [""]
     apiVersions: ["v1"]
     operations: ["CREATE"]
