@@ -90,6 +90,28 @@ class VMController:
         except ApiException:
             return False
 
+    def _clear_evacuation_marker(self, vm_name: str) -> bool:
+        """Clear the evacuationNodeName from VM CR status."""
+        try:
+            patch = {
+                "status": {
+                    "evacuationNodeName": None
+                }
+            }
+            self.custom_api.patch_namespaced_custom_object_status(
+                group="simulation.node-classifier.io",
+                version="v1alpha1",
+                namespace=self.namespace,
+                plural="virtualmachines",
+                name=vm_name,
+                body=patch
+            )
+            logger.info(f"Cleared evacuationNodeName from VM {vm_name} after creating pod with anti-affinity")
+            return True
+        except ApiException as e:
+            logger.error(f"Failed to clear evacuationNodeName from VM {vm_name}: {e}")
+            return False
+
     def _get_vm_pods(self, vm_name: str) -> list:
         """Get all pods for a VM (by label), excluding those being deleted."""
         try:
@@ -150,10 +172,6 @@ class VMController:
 
                 # Check if VM is being evacuated/migrated
                 evacuation_node = status.get("evacuationNodeName", "")
-                if evacuation_node:
-                    # Migration in progress - don't create pod, eviction-webhook handles it
-                    logger.debug(f"VM {vm_name} is being evacuated from {evacuation_node}, skipping")
-                    continue
 
                 # Parse VM resources from spec
                 resources = spec.get("resources", {})
@@ -189,13 +207,20 @@ class VMController:
 
                 if len(active_pods) == 0:
                     # No active pods - create one
-                    logger.info(f"Creating missing pod for VM {vm_name}")
+                    if evacuation_node:
+                        logger.info(f"Creating pod for VM {vm_name} with anti-affinity to {evacuation_node}")
+                    else:
+                        logger.info(f"Creating missing pod for VM {vm_name}")
                     vm.scheduled_node = ""  # Let scheduler decide
-                    created_pod_name = self.pod_manager.create_pod(vm)
+                    # Pass evacuation_node as exclude_node for anti-affinity
+                    created_pod_name = self.pod_manager.create_pod(vm, exclude_node=evacuation_node if evacuation_node else None)
                     if created_pod_name:
                         vm.pod_name = created_pod_name
                         # Update VM status to Scheduling
                         self.vm_manager.update_vm_status(vm_name, "Scheduling", created_pod_name)
+                        # Clear evacuation marker after pod is created with anti-affinity
+                        if evacuation_node:
+                            self._clear_evacuation_marker(vm_name)
                 elif len(active_pods) == 1:
                     # Exactly one pod - update VM status from it
                     pod = active_pods[0]
