@@ -475,6 +475,119 @@ build_and_deploy_exporter() {
     kubectl wait --for=condition=Available deployment/metrics-exporter -n monitoring --timeout=120s
 }
 
+deploy_vm_controller() {
+    info "Deploying VM controller..."
+
+    # Create ConfigMap with Python code
+    kubectl create configmap vm-controller-code \
+        --from-file=vm_controller.py \
+        --from-file=pod_manager.py \
+        --from-file=vm_manager.py \
+        --from-file=node.py \
+        -n monitoring \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+    info "Deploying VM controller deployment..."
+    kubectl apply -f k8s/vm-controller.yaml
+
+    info "Waiting for VM controller to be ready..."
+    kubectl wait --for=condition=Available deployment/vm-controller -n monitoring --timeout=120s
+}
+
+deploy_eviction_webhook() {
+    info "Deploying KubeVirt-style eviction webhook..."
+
+    # Step 1: Generate TLS certificates for webhook
+    info "Generating TLS certificates for eviction webhook..."
+    WEBHOOK_TLS_DIR=$(mktemp -d)
+
+    # Generate CA key and certificate
+    openssl genrsa -out "$WEBHOOK_TLS_DIR/ca.key" 2048 2>/dev/null
+    openssl req -x509 -new -nodes \
+        -key "$WEBHOOK_TLS_DIR/ca.key" \
+        -subj "/CN=Eviction Webhook CA" \
+        -days 365 \
+        -out "$WEBHOOK_TLS_DIR/ca.crt" \
+        2>/dev/null
+
+    # Generate server key
+    openssl genrsa -out "$WEBHOOK_TLS_DIR/tls.key" 2048 2>/dev/null
+
+    # Generate certificate signing request
+    cat > "$WEBHOOK_TLS_DIR/csr.conf" << EOF
+[req]
+req_extensions = v3_req
+distinguished_name = req_distinguished_name
+[req_distinguished_name]
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+[alt_names]
+DNS.1 = eviction-webhook
+DNS.2 = eviction-webhook.monitoring
+DNS.3 = eviction-webhook.monitoring.svc
+DNS.4 = eviction-webhook.monitoring.svc.cluster.local
+EOF
+
+    # Create CSR
+    openssl req -new \
+        -key "$WEBHOOK_TLS_DIR/tls.key" \
+        -subj "/CN=eviction-webhook.monitoring.svc" \
+        -config "$WEBHOOK_TLS_DIR/csr.conf" \
+        -out "$WEBHOOK_TLS_DIR/tls.csr" \
+        2>/dev/null
+
+    # Sign the certificate
+    openssl x509 -req \
+        -in "$WEBHOOK_TLS_DIR/tls.csr" \
+        -CA "$WEBHOOK_TLS_DIR/ca.crt" \
+        -CAkey "$WEBHOOK_TLS_DIR/ca.key" \
+        -CAcreateserial \
+        -out "$WEBHOOK_TLS_DIR/tls.crt" \
+        -days 365 \
+        -extensions v3_req \
+        -extfile "$WEBHOOK_TLS_DIR/csr.conf" \
+        2>/dev/null
+
+    # Step 2: Create Kubernetes secret with certificates
+    info "Creating webhook TLS secret..."
+    kubectl create secret tls eviction-webhook-certs \
+        --cert="$WEBHOOK_TLS_DIR/tls.crt" \
+        --key="$WEBHOOK_TLS_DIR/tls.key" \
+        --namespace=monitoring \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+    # Step 3: Create ConfigMap with webhook code
+    info "Creating webhook code ConfigMap..."
+    kubectl create configmap eviction-webhook-code \
+        --from-file=eviction_webhook.py \
+        --namespace=monitoring \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+    # Step 4: Deploy webhook resources
+    info "Deploying webhook deployment and service..."
+    kubectl apply -f k8s/eviction-webhook.yaml
+
+    # Step 5: Wait for webhook to be ready
+    info "Waiting for webhook to be ready..."
+    kubectl wait --for=condition=Available deployment/eviction-webhook -n monitoring --timeout=120s
+
+    # Step 6: Update MutatingWebhookConfiguration with CA bundle
+    info "Configuring webhook with CA bundle..."
+    CA_BUNDLE=$(cat "$WEBHOOK_TLS_DIR/ca.crt" | base64 | tr -d '\n')
+
+    kubectl patch mutatingwebhookconfiguration eviction-webhook \
+        --type='json' \
+        -p="[{'op': 'replace', 'path': '/webhooks/0/clientConfig/caBundle', 'value':'${CA_BUNDLE}'}]"
+
+    # Cleanup
+    rm -rf "$WEBHOOK_TLS_DIR"
+
+    info "Eviction webhook deployed successfully"
+}
+
 verify_installation() {
     info "Verifying installation..."
 
@@ -495,12 +608,20 @@ verify_installation() {
     kubectl get pods -n kube-descheduler
 
     echo ""
+    info "Eviction webhook:"
+    kubectl get pods -l app=eviction-webhook -n monitoring
+
+    echo ""
     info "Services:"
     kubectl get svc -n monitoring
 
     echo ""
     info "Prometheus recording rules:"
     kubectl get prometheusrules -n monitoring
+
+    echo ""
+    info "Webhook configuration:"
+    kubectl get mutatingwebhookconfiguration eviction-webhook
 }
 
 print_access_info() {
@@ -515,6 +636,7 @@ print_access_info() {
     echo "  ✓ Prometheus Operator"
     echo "  ✓ Descheduler"
     echo "  ✓ Metrics Exporter"
+    echo "  ✓ Eviction Webhook (KubeVirt-style)"
     echo ""
     info "Access endpoints:"
     echo "  Prometheus:       http://localhost:9090"
@@ -529,6 +651,10 @@ print_access_info() {
     echo "  kubectl get vm                     # List VMs"
     echo "  kubectl apply -f k8s/example-vms.yaml  # Create example VMs"
     echo "  kubectl describe vm <name>         # Get VM details"
+    echo ""
+    info "Test eviction webhook (triggers live migration):"
+    echo "  kubectl delete pod <virt-launcher-pod-name>"
+    echo "  kubectl logs -l app=eviction-webhook -n monitoring -f  # Watch migration logs"
     echo ""
     info "Load metrics into Prometheus:"
     echo "  python prometheus_loader.py --url http://localhost:9090"
@@ -549,7 +675,9 @@ main() {
     install_vm_crd
     install_prometheus_operator
     install_descheduler
+    deploy_vm_controller
     build_and_deploy_exporter
+    deploy_eviction_webhook
     verify_installation
     print_access_info
 }

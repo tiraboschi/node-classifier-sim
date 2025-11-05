@@ -74,6 +74,9 @@ spec:
               nodeName:
                 type: string
                 description: Name of the node where the VM is running
+              evacuationNodeName:
+                type: string
+                description: Name of the node from which the VM should be evacuated (KubeVirt-style)
               podName:
                 type: string
                 description: Name of the virt-launcher pod executing this VM

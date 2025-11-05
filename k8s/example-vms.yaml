@@ -9,13 +9,13 @@ metadata:
   name: vm-small-1
   namespace: default
   annotations:
-    description: "Small VM: 1 core, 2Gi memory, 50% CPU util, 60% memory util"
+    description: "Small VM: 1 core, 2Gi memory, 15% CPU util, 60% memory util"
 spec:
   resources:
     cpu: "1"         # 1 CPU core
     memory: "2Gi"    # 2GiB memory
   utilization:
-    cpu: "0.5"       # Using 50% of allocated CPU (0.5 cores)
+    cpu: "0.15"      # Using 15% of allocated CPU (0.15 cores)
     memory: "0.6"    # Using 60% of allocated memory (1.2Gi)
   running: true
 
@@ -26,13 +26,13 @@ metadata:
   name: vm-medium-1
   namespace: default
   annotations:
-    description: "Medium VM: 2 cores, 4Gi memory, 70% CPU util, 80% memory util"
+    description: "Medium VM: 2 cores, 4Gi memory, 18% CPU util, 80% memory util"
 spec:
   resources:
     cpu: "2"         # 2 CPU cores
     memory: "4Gi"    # 4GiB memory
   utilization:
-    cpu: "0.7"       # Using 70% of allocated CPU (1.4 cores)
+    cpu: "0.18"      # Using 18% of allocated CPU (0.36 cores)
     memory: "0.8"    # Using 80% of allocated memory (3.2Gi)
   running: true
 
@@ -43,13 +43,13 @@ metadata:
   name: vm-large-1
   namespace: default
   annotations:
-    description: "Large VM: 4 cores, 8Gi memory, 60% CPU util, 75% memory util"
+    description: "Large VM: 4 cores, 8Gi memory, 12% CPU util, 75% memory util"
 spec:
   resources:
     cpu: "4"         # 4 CPU cores
     memory: "8Gi"    # 8GiB memory
   utilization:
-    cpu: "0.6"       # Using 60% of allocated CPU (2.4 cores)
+    cpu: "0.12"      # Using 12% of allocated CPU (0.48 cores)
     memory: "0.75"   # Using 75% of allocated memory (6Gi)
   running: true
 
@@ -60,13 +60,13 @@ metadata:
   name: vm-compute-intensive
   namespace: default
   annotations:
-    description: "CPU-intensive VM: 8 cores, 4Gi memory, 90% CPU util"
+    description: "CPU-allocated VM: 8 cores, 4Gi memory, 20% CPU util"
 spec:
   resources:
     cpu: "8"         # 8 CPU cores
     memory: "4Gi"    # 4GiB memory
   utilization:
-    cpu: "0.9"       # Using 90% of allocated CPU (7.2 cores)
+    cpu: "0.2"       # Using 20% of allocated CPU (1.6 cores)
     memory: "0.5"    # Using 50% of allocated memory (2Gi)
   running: true
 
@@ -77,14 +77,14 @@ metadata:
   name: vm-memory-intensive
   namespace: default
   annotations:
-    description: "Memory-intensive VM: 2 cores, 16Gi memory, 85% memory util"
+    description: "Memory-allocated VM: 2 cores, 16Gi memory, 70% memory util"
 spec:
   resources:
     cpu: "2"         # 2 CPU cores
     memory: "16Gi"   # 16GiB memory
   utilization:
-    cpu: "0.3"       # Using 30% of allocated CPU (0.6 cores)
-    memory: "0.85"   # Using 85% of allocated memory (13.6Gi)
+    cpu: "0.15"      # Using 15% of allocated CPU (0.3 cores)
+    memory: "0.7"    # Using 70% of allocated memory (11.2Gi)
   running: true
 
 ---
@@ -100,6 +100,176 @@ spec:
     cpu: "0.5"       # 0.5 CPU cores (500 millicores)
     memory: "1Gi"    # 1GiB memory
   utilization:
-    cpu: "0.8"       # Using 80% of allocated CPU (0.4 cores)
+    cpu: "0.16"      # Using 16% of allocated CPU (0.08 cores)
     memory: "0.7"    # Using 70% of allocated memory (0.7Gi)
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-1
+  namespace: default
+  annotations:
+    description: "Idle VM: 1 core, 1Gi memory, minimal utilization"
+spec:
+  resources:
+    cpu: "1"
+    memory: "1Gi"
+  utilization:
+    cpu: "0.1"       # 10% CPU utilization
+    memory: "0.5"    # 50% memory utilization
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-2
+  namespace: default
+  annotations:
+    description: "Idle VM: 2 cores, 2Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "2"
+    memory: "2Gi"
+  utilization:
+    cpu: "0.11"      # 11% CPU utilization
+    memory: "0.55"   # 55% memory utilization
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-3
+  namespace: default
+  annotations:
+    description: "Idle VM: 1 core, 4Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "1"
+    memory: "4Gi"
+  utilization:
+    cpu: "0.12"      # 12% CPU utilization
+    memory: "0.6"    # 60% memory utilization
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-4
+  namespace: default
+  annotations:
+    description: "Idle VM: 4 cores, 4Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "4"
+    memory: "4Gi"
+  utilization:
+    cpu: "0.13"      # 13% CPU utilization
+    memory: "0.65"   # 65% memory utilization
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-5
+  namespace: default
+  annotations:
+    description: "Idle VM: 2 cores, 8Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "2"
+    memory: "8Gi"
+  utilization:
+    cpu: "0.14"      # 14% CPU utilization
+    memory: "0.7"    # 70% memory utilization
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-6
+  namespace: default
+  annotations:
+    description: "Idle VM: 3 cores, 6Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "3"
+    memory: "6Gi"
+  utilization:
+    cpu: "0.15"      # 15% CPU utilization
+    memory: "0.75"   # 75% memory utilization
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-7
+  namespace: default
+  annotations:
+    description: "Idle VM: 1 core, 2Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "1"
+    memory: "2Gi"
+  utilization:
+    cpu: "0.16"      # 16% CPU utilization
+    memory: "0.8"    # 80% memory utilization
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-8
+  namespace: default
+  annotations:
+    description: "Idle VM: 2 cores, 3Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "2"
+    memory: "3Gi"
+  utilization:
+    cpu: "0.17"      # 17% CPU utilization
+    memory: "0.6"    # 60% memory utilization
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-9
+  namespace: default
+  annotations:
+    description: "Idle VM: 4 cores, 8Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "4"
+    memory: "8Gi"
+  utilization:
+    cpu: "0.18"      # 18% CPU utilization
+    memory: "0.7"    # 70% memory utilization
+  running: true
+
+---
+apiVersion: simulation.node-classifier.io/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: vm-idle-10
+  namespace: default
+  annotations:
+    description: "Idle VM: 1 core, 2Gi memory, low utilization"
+spec:
+  resources:
+    cpu: "1"
+    memory: "2Gi"
+  utilization:
+    cpu: "0.19"      # 19% CPU utilization
+    memory: "0.65"   # 65% memory utilization
   running: true

@@ -4,13 +4,16 @@ VirtualMachine Custom Resource Manager
 
 Manages VirtualMachine custom resources that mimic KubeVirt's VMI objects.
 Tracks VM resource consumption via annotations and pod execution via status.
+Includes built-in utilization-to-pod synchronization.
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
 import logging
-from kubernetes import client, config
+import threading
+import time
+from kubernetes import client, config, watch
 from kubernetes.client.rest import ApiException
 
 from node import VM
@@ -56,6 +59,11 @@ class VMManager:
         self.namespace = namespace
         self.vm_registry: Dict[str, VMStatus] = {}  # vm_name -> VMStatus
 
+        # Utilization sync state
+        self._utilization_cache: Dict[str, Dict[str, str]] = {}
+        self._sync_thread: Optional[threading.Thread] = None
+        self._sync_running = False
+
         # Initialize Kubernetes clients
         try:
             if use_in_cluster_config:
@@ -69,6 +77,9 @@ class VMManager:
         except Exception as e:
             logger.error(f"Failed to initialize Kubernetes client: {e}")
             raise
+
+        # Always start utilization sync
+        self.start_utilization_sync()
 
     def create_vm(self, vm: VM) -> bool:
         """
@@ -185,6 +196,14 @@ class VMManager:
 
             if node_name:
                 vm_obj["status"]["nodeName"] = node_name
+
+            # Copy utilization values from spec to status
+            if "spec" in vm_obj and "utilization" in vm_obj["spec"]:
+                utilization = vm_obj["spec"]["utilization"]
+                if "cpu" in utilization:
+                    vm_obj["status"]["cpuUtilization"] = utilization["cpu"]
+                if "memory" in utilization:
+                    vm_obj["status"]["memoryUtilization"] = utilization["memory"]
 
             # Add condition for phase change
             now = datetime.now(timezone.utc).isoformat()
@@ -399,3 +418,207 @@ class VMManager:
 
         logger.info(f"Cleaned up {count} VMs")
         return count
+
+    # ========================================================================
+    # Utilization Synchronization (VM spec -> Pod annotations)
+    # ========================================================================
+
+    def _get_vm_utilization(self, vm_obj: Dict[str, Any]) -> Optional[Dict[str, str]]:
+        """Extract utilization values from a VM object."""
+        spec = vm_obj.get("spec", {})
+        utilization = spec.get("utilization", {})
+        if not utilization:
+            return None
+        return {
+            "cpu": utilization.get("cpu", ""),
+            "memory": utilization.get("memory", "")
+        }
+
+    def _sync_vm_utilization_to_pod(self, vm_obj: Dict[str, Any]) -> bool:
+        """
+        Sync a VirtualMachine's utilization to its pod annotations.
+
+        Args:
+            vm_obj: VirtualMachine object
+
+        Returns:
+            True if successful, False otherwise
+        """
+        vm_name = vm_obj.get("metadata", {}).get("name", "")
+        if not vm_name:
+            return False
+
+        # Get current utilization values
+        utilization = self._get_vm_utilization(vm_obj)
+        if not utilization:
+            logger.debug(f"No utilization spec found for VM {vm_name}")
+            return False
+
+        cpu_util = utilization.get("cpu", "")
+        memory_util = utilization.get("memory", "")
+
+        # Check if utilization has changed
+        cached_util = self._utilization_cache.get(vm_name)
+        if cached_util and cached_util.get("cpu") == cpu_util and cached_util.get("memory") == memory_util:
+            # No change, skip update
+            return True
+
+        # Get pod name from VM status
+        status = vm_obj.get("status", {})
+        pod_name = status.get("podName", "")
+
+        if not pod_name:
+            logger.debug(f"VM {vm_name} has no associated pod yet")
+            # Update cache even if no pod exists yet
+            self._utilization_cache[vm_name] = utilization
+            return False
+
+        # Update pod annotations
+        try:
+            patch = {
+                "metadata": {
+                    "annotations": {
+                        "simulation.node-classifier.io/vm-cpu-utilization": cpu_util,
+                        "simulation.node-classifier.io/vm-memory-utilization": memory_util
+                    }
+                }
+            }
+
+            self.core_v1.patch_namespaced_pod(
+                name=pod_name,
+                namespace=self.namespace,
+                body=patch
+            )
+
+            # Update cache
+            self._utilization_cache[vm_name] = utilization
+            logger.info(f"Synced utilization for VM {vm_name} -> pod {pod_name}: "
+                       f"cpu={cpu_util}, memory={memory_util}")
+            return True
+
+        except ApiException as e:
+            if e.status == 404:
+                logger.warning(f"Pod {pod_name} not found for VM {vm_name}")
+            else:
+                logger.error(f"Failed to update pod {pod_name} annotations: {e}")
+            return False
+
+    def _watch_vms_for_utilization_changes(self) -> None:
+        """
+        Watch VirtualMachine resources and sync utilization to pods.
+        Runs in a background thread.
+        """
+        logger.info(f"Starting VM utilization watcher for namespace '{self.namespace}'")
+        w = watch.Watch()
+
+        while self._sync_running:
+            try:
+                stream = w.stream(
+                    self.custom_api.list_namespaced_custom_object,
+                    group=VM_GROUP,
+                    version=VM_VERSION,
+                    namespace=self.namespace,
+                    plural=VM_PLURAL,
+                    timeout_seconds=60
+                )
+
+                for event in stream:
+                    if not self._sync_running:
+                        break
+
+                    event_type = event.get("type", "")
+                    vm_obj = event.get("object", {})
+                    vm_name = vm_obj.get("metadata", {}).get("name", "")
+
+                    if event_type == "DELETED":
+                        # Remove from cache
+                        if vm_name in self._utilization_cache:
+                            del self._utilization_cache[vm_name]
+                    elif event_type in ["ADDED", "MODIFIED"]:
+                        # Sync utilization to pod
+                        self._sync_vm_utilization_to_pod(vm_obj)
+
+            except ApiException as e:
+                if e.status == 410:
+                    logger.warning("Watch resource version too old, restarting watch")
+                    continue
+                else:
+                    logger.error(f"API exception in watch loop: {e}")
+                    if self._sync_running:
+                        time.sleep(5)
+            except Exception as e:
+                logger.error(f"Unexpected error in watch loop: {e}")
+                if self._sync_running:
+                    time.sleep(5)
+
+        logger.info("VM utilization watcher stopped")
+
+    def start_utilization_sync(self) -> bool:
+        """
+        Start background thread to sync VM utilization to pod annotations.
+
+        Returns:
+            True if started, False if already running
+        """
+        if self._sync_running:
+            logger.warning("Utilization sync already running")
+            return False
+
+        # Perform initial sync
+        self.sync_all_utilization()
+
+        # Start watcher thread
+        self._sync_running = True
+        self._sync_thread = threading.Thread(
+            target=self._watch_vms_for_utilization_changes,
+            daemon=True,
+            name="vm-utilization-sync"
+        )
+        self._sync_thread.start()
+        logger.info("VM utilization sync started in background thread")
+        return True
+
+    def stop_utilization_sync(self) -> None:
+        """Stop the background utilization sync thread."""
+        if not self._sync_running:
+            return
+
+        logger.info("Stopping VM utilization sync...")
+        self._sync_running = False
+
+        if self._sync_thread and self._sync_thread.is_alive():
+            self._sync_thread.join(timeout=5)
+
+        logger.info("VM utilization sync stopped")
+
+    def sync_all_utilization(self) -> Dict[str, int]:
+        """
+        Perform a one-time sync of all VMs' utilization to their pods.
+
+        Returns:
+            Statistics: synced, failed, skipped
+        """
+        stats = {"synced": 0, "failed": 0, "skipped": 0}
+
+        try:
+            vms = self.list_vms()
+            logger.info(f"Syncing utilization for {len(vms)} VMs")
+
+            for vm_obj in vms:
+                success = self._sync_vm_utilization_to_pod(vm_obj)
+                if success:
+                    stats["synced"] += 1
+                else:
+                    vm_name = vm_obj.get("metadata", {}).get("name", "")
+                    status = vm_obj.get("status", {})
+                    if not status.get("podName"):
+                        stats["skipped"] += 1
+                    else:
+                        stats["failed"] += 1
+
+            logger.info(f"Utilization sync complete: {stats}")
+            return stats
+
+        except Exception as e:
+            logger.error(f"Failed to sync utilization: {e}")
+            return stats
