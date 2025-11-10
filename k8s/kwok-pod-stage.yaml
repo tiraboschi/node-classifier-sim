@@ -173,22 +173,8 @@ spec:
       values:
       - Job
 ---
-apiVersion: kwok.x-k8s.io/v1alpha1
-kind: Stage
-metadata:
-  name: pod-delete
-spec:
-  next:
-    delete: true
-    finalizers:
-      empty: true
-  resourceRef:
-    apiGroup: v1
-    kind: Pod
-  selector:
-    matchExpressions:
-    - key: .metadata.deletionTimestamp
-      operator: Exists
+# Removed pod-delete stage - let Kubernetes handle pod deletion naturally
+# after finalizers are properly removed by webhooks and controllers
 ---
 apiVersion: kwok.x-k8s.io/v1alpha1
 kind: Stage

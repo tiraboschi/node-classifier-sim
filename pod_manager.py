@@ -290,12 +290,14 @@ class PodManager:
 
             # Create the pod (with ownerReference if VM CR UID was obtained)
             pod_spec = self._create_pod_spec(vm, node_name, exclude_node=exclude_node, vm_cr_uid=vm_cr_uid)
+            logger.info(f"📝 Creating pod for VM {vm.id} with finalizers: {pod_spec.metadata.finalizers}")
             created_pod = self.v1.create_namespaced_pod(
                 namespace=self.namespace,
                 body=pod_spec
             )
 
             pod_name = created_pod.metadata.name
+            logger.info(f"✅ Pod {pod_name} created with finalizers: {created_pod.metadata.finalizers}")
 
             # Update VM with pod reference
             vm.pod_name = pod_name
@@ -914,9 +916,14 @@ class PodManager:
         try:
             import json as json_module
             from kubernetes.client import ApiClient
+            import traceback
 
             pod = self.v1.read_namespaced_pod(name=pod_name, namespace=self.namespace)
             finalizers = pod.metadata.finalizers or []
+            logger.info(f"🔍 _remove_pod_finalizer called for pod {pod_name}")
+            logger.info(f"   Current finalizers: {finalizers}")
+            logger.info(f"   Call stack:\n{''.join(traceback.format_stack()[-4:-1])}")
+
             if "kubevirt.io/migration-protection" in finalizers:
                 finalizers.remove("kubevirt.io/migration-protection")
                 # Use JSON patch for reliable finalizer removal
@@ -933,8 +940,10 @@ class PodManager:
                     auth_settings=['BearerToken'],
                     _return_http_data_only=True
                 )
-                logger.info(f"   Removed finalizer from pod {pod_name}")
+                logger.info(f"✅ Removed finalizer from pod {pod_name}, remaining: {finalizers}")
                 return True
+            else:
+                logger.info(f"⚠️  Pod {pod_name} has no migration finalizer to remove")
             return False
         except ApiException as e:
             logger.error(f"Failed to remove finalizer from pod {pod_name}: {e}")
