@@ -85,6 +85,38 @@ def get_vm_from_pod(pod_name: str, labels: Dict[str, str]) -> Optional[str]:
     return None
 
 
+def mark_vm_for_evacuation(vm_id: str, node_name: str, namespace: str = "default"):
+    """Mark a VM for evacuation by setting evacuationNodeName in its status."""
+    try:
+        # Read current VM object
+        vm_obj = state.custom_api.get_namespaced_custom_object(
+            group="simulation.node-classifier.io",
+            version="v1alpha1",
+            namespace=namespace,
+            plural="virtualmachines",
+            name=vm_id
+        )
+
+        # Update status with evacuation node
+        if "status" not in vm_obj:
+            vm_obj["status"] = {}
+        vm_obj["status"]["evacuationNodeName"] = node_name
+
+        # Patch via status subresource
+        state.custom_api.patch_namespaced_custom_object_status(
+            group="simulation.node-classifier.io",
+            version="v1alpha1",
+            namespace=namespace,
+            plural="virtualmachines",
+            name=vm_id,
+            body=vm_obj
+        )
+        logger.info(f"   Marked VM {vm_id} for evacuation from node {node_name}")
+    except ApiException as e:
+        logger.error(f"Failed to mark VM {vm_id} for evacuation: {e}")
+        raise
+
+
 @app.route('/mutate', methods=['POST'])
 def mutate_webhook():
     """
@@ -194,12 +226,14 @@ def mutate_webhook():
             # We already have current state in pod_obj
             current_finalizers = finalizers
             pod_node = pod_obj.get("spec", {}).get("nodeName")
+            logger.info(f"📍 Pod {pod_name}: Eviction API called, finalizers from read: {current_finalizers}")
         else:
             # DELETE operation - read current pod state
             try:
                 current_pod = state.k8s_client.read_namespaced_pod(name=pod_name, namespace=namespace)
                 current_finalizers = current_pod.metadata.finalizers or []
                 pod_node = current_pod.spec.node_name if hasattr(current_pod, 'spec') and current_pod.spec else None
+                logger.info(f"📍 Pod {pod_name}: DELETE request, read current finalizers: {current_finalizers}, node: {pod_node}")
             except ApiException as e:
                 logger.warning(f"Cannot read current pod state for {pod_name}: {e}")
                 # IMPORTANT: oldObject in DELETE requests doesn't include finalizers!
@@ -356,6 +390,137 @@ def mutate_webhook():
             "response": {
                 "uid": req.get("uid", ""),
                 "allowed": True,  # Allow on error to avoid blocking
+                "status": {
+                    "message": f"Webhook error: {str(e)}"
+                }
+            }
+        }), 500
+
+
+@app.route('/validate', methods=['POST'])
+def validate_webhook():
+    """
+    Validating webhook endpoint for pod evictions (Eviction API).
+
+    This intercepts CREATE requests on pods/eviction and validates whether the eviction
+    should be allowed based on the pod's finalizers.
+    """
+    try:
+        admission_review = request.get_json()
+
+        # Extract admission request
+        req = admission_review.get("request", {})
+        uid = req.get("uid")
+        namespace = req.get("namespace", "default")
+
+        # Extract pod name from the eviction request
+        eviction_obj = req.get("object", {})
+        pod_name = eviction_obj.get("metadata", {}).get("name", "")
+
+        if not pod_name:
+            logger.warning("Eviction request missing pod name, allowing")
+            return jsonify({
+                "apiVersion": "admission.k8s.io/v1",
+                "kind": "AdmissionReview",
+                "response": {
+                    "uid": uid,
+                    "allowed": True
+                }
+            })
+
+        # Read the pod being evicted
+        try:
+            pod = state.k8s_client.read_namespaced_pod(name=pod_name, namespace=namespace)
+        except ApiException as e:
+            if e.status == 404:
+                logger.info(f"Pod {pod_name} not found, allowing eviction")
+                return jsonify({
+                    "apiVersion": "admission.k8s.io/v1",
+                    "kind": "AdmissionReview",
+                    "response": {
+                        "uid": uid,
+                        "allowed": True
+                    }
+                })
+            else:
+                logger.error(f"Error reading pod {pod_name}: {e}")
+                # Fail open on error to avoid blocking evictions
+                return jsonify({
+                    "apiVersion": "admission.k8s.io/v1",
+                    "kind": "AdmissionReview",
+                    "response": {
+                        "uid": uid,
+                        "allowed": True
+                    }
+                })
+
+        # Check if this is a virt-launcher pod
+        labels = pod.metadata.labels or {}
+        if not is_virt_launcher_pod(pod_name, labels):
+            logger.debug(f"Pod {pod_name} is not a virt-launcher pod, allowing eviction")
+            return jsonify({
+                "apiVersion": "admission.k8s.io/v1",
+                "kind": "AdmissionReview",
+                "response": {
+                    "uid": uid,
+                    "allowed": True
+                }
+            })
+
+        # Check pod finalizers
+        finalizers = pod.metadata.finalizers or []
+        node_name = pod.spec.node_name if hasattr(pod, 'spec') and pod.spec else None
+
+        logger.info(f"🔍 Validating eviction for pod {pod_name}: finalizers={finalizers}, node={node_name}")
+
+        if "kubevirt.io/migration-protection" in finalizers:
+            # Pod has migration finalizer - DENY eviction and trigger migration
+            vm_id = get_vm_from_pod(pod_name, labels)
+
+            if vm_id and node_name:
+                logger.info(f"🚫 Denying eviction of pod {pod_name} - has finalizer, marking VM {vm_id} for evacuation from {node_name}")
+
+                # Mark VM for evacuation
+                try:
+                    mark_vm_for_evacuation(vm_id, node_name, namespace)
+                except Exception as e:
+                    logger.error(f"Failed to mark VM {vm_id} for evacuation: {e}")
+
+                # Deny the eviction
+                return jsonify({
+                    "apiVersion": "admission.k8s.io/v1",
+                    "kind": "AdmissionReview",
+                    "response": {
+                        "uid": uid,
+                        "allowed": False,
+                        "status": {
+                            "code": 429,
+                            "message": f"Pod {pod_name} is being migrated - eviction denied temporarily"
+                        }
+                    }
+                })
+            else:
+                logger.warning(f"Pod {pod_name} has finalizer but missing VM ID or node, allowing eviction")
+
+        # No finalizer or already being migrated - allow eviction
+        logger.info(f"✅ Allowing eviction of pod {pod_name} - no migration protection needed")
+        return jsonify({
+            "apiVersion": "admission.k8s.io/v1",
+            "kind": "AdmissionReview",
+            "response": {
+                "uid": uid,
+                "allowed": True
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"Error in validation webhook: {e}", exc_info=True)
+        return jsonify({
+            "apiVersion": "admission.k8s.io/v1",
+            "kind": "AdmissionReview",
+            "response": {
+                "uid": req.get("uid", ""),
+                "allowed": True,  # Fail open on error
                 "status": {
                     "message": f"Webhook error: {str(e)}"
                 }

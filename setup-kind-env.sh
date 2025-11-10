@@ -578,12 +578,15 @@ EOF
     info "Configuring webhook with CA bundle..."
     CA_BUNDLE=$(cat "$WEBHOOK_TLS_DIR/ca.crt" | base64 | tr -d '\n')
 
+    # Patch MutatingWebhookConfiguration (only 1 webhook for DELETE)
     kubectl patch mutatingwebhookconfiguration eviction-webhook \
         --type='json' \
-        -p="[
-          {'op': 'replace', 'path': '/webhooks/0/clientConfig/caBundle', 'value':'${CA_BUNDLE}'},
-          {'op': 'replace', 'path': '/webhooks/1/clientConfig/caBundle', 'value':'${CA_BUNDLE}'}
-        ]"
+        -p="[{\"op\": \"replace\", \"path\": \"/webhooks/0/clientConfig/caBundle\", \"value\":\"${CA_BUNDLE}\"}]"
+
+    # Patch ValidatingWebhookConfiguration (has 2 webhooks for CREATE on pods/eviction)
+    kubectl patch validatingwebhookconfiguration eviction-webhook-validator \
+        --type='json' \
+        -p="[{\"op\": \"replace\", \"path\": \"/webhooks/0/clientConfig/caBundle\", \"value\":\"${CA_BUNDLE}\"},{\"op\": \"replace\", \"path\": \"/webhooks/1/clientConfig/caBundle\", \"value\":\"${CA_BUNDLE}\"}]"
 
     # Cleanup
     rm -rf "$WEBHOOK_TLS_DIR"
