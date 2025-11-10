@@ -369,6 +369,7 @@ def mutate_webhook():
 
         # Return KubeVirt-compatible error message that descheduler recognizes
         # The descheduler looks for "Eviction triggered evacuation" to know it should back off
+        # Must return HTTP 429 (Too Many Requests) for descheduler to recognize eviction in background
         return jsonify({
             "apiVersion": "admission.k8s.io/v1",
             "kind": "AdmissionReview",
@@ -376,7 +377,7 @@ def mutate_webhook():
                 "uid": uid,
                 "allowed": False,
                 "status": {
-                    "code": 403,
+                    "code": 429,
                     "message": f"Eviction triggered evacuation of VMI \"{namespace}/{vm_id}\""
                 }
             }
@@ -486,7 +487,8 @@ def validate_webhook():
                 except Exception as e:
                     logger.error(f"Failed to mark VM {vm_id} for evacuation: {e}")
 
-                # Deny the eviction
+                # Deny the eviction with KubeVirt-compatible message
+                # Must match the format the descheduler expects: "Eviction triggered evacuation"
                 return jsonify({
                     "apiVersion": "admission.k8s.io/v1",
                     "kind": "AdmissionReview",
@@ -495,7 +497,7 @@ def validate_webhook():
                         "allowed": False,
                         "status": {
                             "code": 429,
-                            "message": f"Pod {pod_name} is being migrated - eviction denied temporarily"
+                            "message": f"Eviction triggered evacuation of VMI \"{namespace}/{vm_id}\""
                         }
                     }
                 })
