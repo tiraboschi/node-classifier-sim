@@ -85,6 +85,23 @@ cpu_pressure_counter = Counter(
     registry=registry
 )
 
+memory_pressure_counter = Counter(
+    'node_pressure_memory_waiting_seconds_total',
+    'Total memory pressure waiting seconds (simulated PSI metric)',
+    ['instance'],
+    registry=registry
+)
+
+# Node-exporter style memory metrics
+memory_available_gauge = Gauge(
+    'node_memory_MemAvailable_bytes',
+    'Available memory in bytes (simulated node-exporter metric)',
+    ['instance'],
+    registry=registry
+)
+
+# Removed kube_node_status_allocatable - provided by kube-state-metrics
+
 # Node role label metric (kube-state-metrics style)
 node_role_gauge = Gauge(
     'kube_node_role',
@@ -248,6 +265,17 @@ class ExporterState:
                     # Increment by pressure ratio × elapsed time
                     pressure_seconds = round(metrics["cpu_pressure"] * elapsed_seconds, 9)
                     cpu_pressure_counter.labels(instance=node_name).inc(pressure_seconds)
+
+                    # Memory pressure counter: pressure is already a ratio (0.0-1.0)
+                    # Increment by pressure ratio × elapsed time
+                    memory_pressure_seconds = round(metrics["memory_pressure"] * elapsed_seconds, 9)
+                    memory_pressure_counter.labels(instance=node_name).inc(memory_pressure_seconds)
+
+                # Node-exporter style memory metrics (always set, not incremented)
+                # Calculate available memory from usage ratio
+                node_memory_bytes = 128 * 1024 ** 3  # 128 GiB
+                memory_available_bytes = node_memory_bytes * (1.0 - metrics["memory_usage"])
+                memory_available_gauge.labels(instance=node_name).set(memory_available_bytes)
 
                 # Set node role (always set, not incremented)
                 node_role_gauge.labels(node=node_name, role='worker', instance=node_name).set(1)
